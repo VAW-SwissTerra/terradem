@@ -1,0 +1,20 @@
+name: terradem
+
+channels:
+        - conda-forge
+
+dependencies:
+        - python>=3
+        - pip
+        - python-wget
+        - scipy
+        - matplotlib
+        - tqdm
+        - geopandas
+        - opencv
+        - git
+        - pytest
+        - pip:
+                - pytransform3d
+                - git+https://github.com/GlacioHack/xdem.git
+

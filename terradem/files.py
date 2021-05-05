@@ -1,0 +1,130 @@
+"""Utility functions to handle input and output files."""
+import hashlib
+import os
+import shutil
+import sys
+import tarfile
+import tempfile
+
+import requests
+from tqdm import tqdm
+
+# URLs to the data
+DATA_URLS = {
+    "results": "https://schyttholmlund.com/share/terra/terra_results.tar.gz",
+    "external": "https://schyttholmlund.com/share/terra/terra_inputs.tar.gz",
+}
+
+
+# Expected MD5 checksums for the downloaded files.
+CHECKSUMS = {
+    "terra_results.tar.gz": "89a705790195f6021a1e79a7c2edcf85",
+    "terra_inputs.tar.gz": "4b9c1d5d4bc43cd0d97a303567ffe981"
+}
+
+BASE_DIRECTORY = os.path.abspath(os.path.join(os.path.join(os.path.dirname(__file__), os.path.pardir)))
+
+DIRECTORY_PATHS = {
+    "data": os.path.join(BASE_DIRECTORY, "data/"),
+    "external": os.path.join(BASE_DIRECTORY, "data/", "external/"),
+    "results": os.path.join(BASE_DIRECTORY, "data/", "results/")
+}
+
+EXTERNAL_DATA_PATHS = {
+    "base_dem": os.path.join(DIRECTORY_PATHS["external"], "rasters", "base_dem.tif"),
+    "stable_ground_mask": os.path.join(DIRECTORY_PATHS["results"], "masks", "stable_ground_mask.tif")
+}
+
+
+def _download_file(url: str, output_directory: str):
+    """
+    Download a file from a url and save it in a given directory.
+
+    Mostly copied from: https://gist.github.com/ruxi/5d6803c116ec1130d484a4ab8c00c603
+
+    :param url: The URL to the file.
+    :param output_directory: The directory to save the file.
+    """
+    temp_dir = tempfile.TemporaryDirectory()
+
+    # The header of the dl link has a Content-Length which is in bytes.
+    # The bytes is in string hence has to convert to integer.
+    filesize = int(requests.head(url).headers["Content-Length"])
+
+    # os.path.basename returns python-3.8.5-macosx10.9.pkg,
+    # without this module I will have to manually split the url by "/"
+    # then get the last index with -1.
+    # Example:
+    # url.split("/")[-1]
+    filename = os.path.basename(url)
+
+    # The absolute path to download the python program to.
+    dl_path = os.path.join(temp_dir.name, filename)
+    chunk_size = 1024
+
+    # Use the requests.get with stream enable, with iter_content by chunk size,
+    # the contents will be written to the dl_path.
+    # tqdm tracks the progress by progress.update(datasize)
+    with requests.get(url, stream=True) as reader, open(dl_path, "wb") as outfile, tqdm(
+            unit="B",  # unit string to be displayed.
+            unit_scale=True,  # let tqdm to determine the scale in kilo, mega..etc.
+            unit_divisor=1024,  # is used when unit_scale is true
+            total=filesize,  # the total iteration.
+            file=sys.stdout,  # default goes to stderr, this is the display on console.
+            desc=f"Downloading {filename}"  # prefix to be displayed on progress bar.
+    ) as progress:
+        for chunk in reader.iter_content(chunk_size=chunk_size):
+            # download the file chunk by chunk
+            datasize = outfile.write(chunk)
+            # on each chunk update the progress bar.
+            progress.update(datasize)
+
+    shutil.move(dl_path, os.path.join(output_directory, filename))
+
+
+def _verify_hash(filepath: str) -> bool:
+    """Return True if the hash of a file matches the expected hash."""
+    if not os.path.isfile(filepath):
+        return False
+
+    with open(filepath, "rb") as infile:
+        md5 = hashlib.md5(infile.read()).hexdigest()
+
+    return md5 == CHECKSUMS[os.path.basename(filepath)]
+
+
+def _get_directory_size(directory: str) -> int:
+    """Get the size of a directory in KiB."""
+    if not os.path.isdir(directory):
+        return 0
+    size = sum(d.stat().st_size for d in os.scandir(directory) if d.is_file())
+
+    return size
+
+
+def get_data(overwrite: bool = False):
+    """
+    Download the data if necessary.
+
+    Validates the checksums of the tarballs.
+    If the data directories are not empty and the tarball is valid, nothing happens.
+    Otherwise, it will download the file again.
+
+    :param overwrite: Force a re-download of all data and extract them.
+
+    :raises AssertionError: If the hash of a newly downloaded file is invalid.
+    """
+    for key in DATA_URLS:
+        filepath = os.path.join(DIRECTORY_PATHS["data"], os.path.basename(DATA_URLS[key]))
+        if overwrite or not _verify_hash(filepath):
+            _download_file(DATA_URLS[key], DIRECTORY_PATHS["data"])
+            if not _verify_hash(filepath):
+                raise AssertionError("Downloaded file hash does not match the expected hash.")
+
+        if not overwrite and _get_directory_size(DIRECTORY_PATHS[key]) > 1024:
+            continue
+        if os.path.isdir(DIRECTORY_PATHS[key]):
+            shutil.rmtree(DIRECTORY_PATHS[key])
+        os.makedirs(DIRECTORY_PATHS[key])
+        print(f"Extracting {filepath} to {DIRECTORY_PATHS[key]}")
+        tarfile.open(filepath).extractall(DIRECTORY_PATHS[key])

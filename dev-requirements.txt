@@ -1,0 +1,10 @@
+git+https://github.com/python/mypy.git
+prospector
+jedi
+rope
+pydocstyle
+sphinx
+recommonmark
+autopep8
+ipython
+types-requests
