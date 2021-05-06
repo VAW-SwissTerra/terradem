@@ -12,7 +12,7 @@ from tqdm import tqdm
 # URLs to the data
 DATA_URLS = {
     "results": "https://schyttholmlund.com/share/terra/terra_results.tar.gz",
-    "external": "https://schyttholmlund.com/share/terra/terra_inputs.tar.gz",
+    "external": os.getenv("TERRADEM_EXTERNAL_URL"),
 }
 
 
@@ -23,11 +23,21 @@ CHECKSUMS = {
 }
 
 BASE_DIRECTORY = os.path.abspath(os.path.join(os.path.join(os.path.dirname(__file__), os.path.pardir)))
+TEMP_DIRECTORY = os.path.join(BASE_DIRECTORY, "temp/")
+
+TEMP_SUBDIRS = {
+    "dems_coreg": os.path.join(TEMP_DIRECTORY, "dems_coreg"),
+    "coreg_matrices": os.path.join(TEMP_DIRECTORY, "coreg_matrices"),
+}
+
+for key in TEMP_SUBDIRS:
+    os.makedirs(TEMP_SUBDIRS[key], exist_ok=True)
 
 DIRECTORY_PATHS = {
     "data": os.path.join(BASE_DIRECTORY, "data/"),
     "external": os.path.join(BASE_DIRECTORY, "data/", "external/"),
-    "results": os.path.join(BASE_DIRECTORY, "data/", "results/")
+    "results": os.path.join(BASE_DIRECTORY, "data/", "results/"),
+    "dems": os.path.join(BASE_DIRECTORY, "data/results/dems/"),
 }
 
 EXTERNAL_DATA_PATHS = {
