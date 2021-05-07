@@ -12,10 +12,13 @@ from typing import Optional, Union
 
 import cv2
 import geopandas as gpd
+import geoutils as gu
 import matplotlib.pyplot as plt
 import numpy as np
 import rasterio as rio
+import rasterio.warp
 import scipy.interpolate
+import scipy.ndimage
 import shapely
 import xdem
 from tqdm import tqdm
@@ -130,7 +133,7 @@ def run_coregistration(reference_dem: np.ndarray, dem: np.ndarray, transform: ri
 
 def coregister_dem(filepath: str,
                    base_dem_lock: Optional[threading.Lock] = None, stable_ground_lock: Optional[threading.Lock] = None,
-                   pixel_buffer: int = 10) -> bool:
+                   pixel_buffer: int = 10, plot: bool = False) -> bool:
     """
     Coregister a DEM to the "base_dem" using a pipeline of BiasCorr + ICP + NuthKaab.
 
@@ -143,8 +146,8 @@ def coregister_dem(filepath: str,
     """
     # Open the datasets.
     dem_ds = rio.open(filepath)
-    base_dem_ds = rio.open(terradem.files.EXTERNAL_DATA_PATHS["base_dem"])
-    stable_ground_ds = rio.open(terradem.files.EXTERNAL_DATA_PATHS["stable_ground_mask"])
+    base_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
+    stable_ground_ds = rio.open(terradem.files.INPUT_FILE_PATHS["stable_ground_mask"])
 
     resolution = dem_ds.res[0]
 
@@ -152,22 +155,17 @@ def coregister_dem(filepath: str,
     buffered_left = dem_ds.bounds.left - pixel_buffer * resolution
     buffered_top = dem_ds.bounds.top + pixel_buffer * resolution
     large_window = rio.windows.Window(
-        *base_dem_ds.index(buffered_left, buffered_top)[::-1],
+        *(base_dem_ds.index(buffered_left, buffered_top)[::-1]),
         height=dem_ds.height + pixel_buffer,
         width=dem_ds.width + pixel_buffer
     )
     small_window = rio.windows.Window(
-        *dem_ds.index(buffered_left, buffered_top),
+        *(dem_ds.index(buffered_left, buffered_top)[::-1]),
         height=dem_ds.height + pixel_buffer,
         width=dem_ds.width + pixel_buffer
     )
 
     big_transform = rio.transform.from_origin(buffered_left, buffered_top, resolution, resolution)
-    big_bounds, _ = xdem.coreg._transform_to_bounds_and_res(dem_ds.shape, big_transform)
-
-    shifted_transform = rio.transform.from_origin(
-        west=(big_bounds.right - big_bounds.left) / 2,
-        north=(big_bounds.top - big_bounds.bottom) / 2, xsize=resolution, ysize=resolution)
 
     # Read the DEM to be coregistered.
     dem = dem_ds.read(1, masked=True, window=small_window, boundless=True).filled(np.nan)
@@ -182,6 +180,14 @@ def coregister_dem(filepath: str,
     # Make sure they ended up in the same shape.
     assert dem.shape == base_dem.shape == stable_ground.shape
 
+    # Calculate the overlap between the DEMs
+    overlapping_area = np.count_nonzero(np.logical_and(
+        *[scipy.ndimage.maximum_filter(mask, size=pixel_buffer, mode="constant")
+          for mask in (
+              np.isfinite(dem) & stable_ground,
+              np.isfinite(base_dem) & stable_ground
+        )]
+    )) * (resolution ** 2)
     # Create a coregistration pipeline.
     pipeline = make_pipeline()
 
@@ -197,22 +203,22 @@ def coregister_dem(filepath: str,
                 inlier_mask=stable_ground,
                 transform=big_transform,
             )
-    except (ValueError, NotImplementedError, AssertionError, RuntimeWarning) as exception:
+    except Exception as exception:
         allowed_exceptions = [
             "Less than 10 different cells exist",  # The nuth and kaab approach complains
             "Mean of empty slice",  # A warning turned-error of the bias correction
+            "registerModelToScene",  # ICP may fail because of lacking data.
+            "ICP coregistration failed",  # This happens if the point clouds were not even close to converging.
         ]
         for e_string in allowed_exceptions:
             if e_string in str(exception):
                 return False
 
-        print(exception)
-        return False
-        #raise exception
+        raise exception
 
     # Extract the matrix.
     matrix = pipeline.to_matrix()
-    centroid = pipeline.pipeline[1]._meta["centroid"]
+    centroid = pipeline.pipeline[1]._meta["centroid"]  # pylint: disable=protected-access
 
     # If the total displacement is larger than 2000m, something is probably wrong.
     if np.linalg.norm(matrix[[0, 1, 2], 3]) > 2000:
@@ -220,8 +226,35 @@ def coregister_dem(filepath: str,
 
     dem_coreg = apply_matrix(dem, transform=big_transform, matrix=matrix, centroid=centroid)
 
+    if False:
+        ddem_pre = np.where(stable_ground, base_dem - dem, np.nan)
+        ddem_pos = np.where(stable_ground, base_dem - dem_coreg, np.nan)
+
+        plt.figure(dpi=200)
+        plt.subplot(221)
+        plt.imshow(ddem_pre, cmap="coolwarm_r", vmin=-10, vmax=10)
+        plt.subplot(222)
+        plt.imshow(ddem_pos, cmap="coolwarm_r", vmin=-10, vmax=10)
+        plt.subplot(223)
+        plt.hist(ddem_pre.ravel(), bins=np.linspace(-50, 50, 100))
+        plt.subplot(224)
+        plt.hist(ddem_pos.ravel(), bins=np.linspace(-50, 50, 100))
+
+        plt.show()
+
     meta = dem_ds.meta
     meta.update(dict(transform=big_transform))
+    meta = dict(
+        width=dem_coreg.shape[1],
+        height=dem_coreg.shape[0],
+        transform=big_transform,
+        count=1,
+        nodata=dem_ds.nodata,
+        crs=dem_ds.crs,
+        dtype=dem.dtype,
+        compress="deflate"
+    )
+
     # Write the coregistered DEM.
     with rio.open(os.path.join(terradem.files.TEMP_SUBDIRS["dems_coreg"], os.path.basename(filepath)),
                   mode="w",
@@ -233,12 +266,13 @@ def coregister_dem(filepath: str,
             terradem.files.TEMP_SUBDIRS["coreg_matrices"],
             os.path.splitext(os.path.basename(filepath))[0] + ".json"
     ), "w") as outfile:
-        json.dump({"centroid": centroid.tolist(), "matrix": matrix.tolist()}, outfile)
+        json.dump({"centroid": centroid.tolist(), "matrix": matrix.tolist(),
+                   "overlapping_area": overlapping_area}, outfile)
 
     return True
 
 
-def coregister_all_dems(overwrite: bool = False, n_threads=1):
+def coregister_all_dems(overwrite: bool = False, n_threads=1, subset: Optional[int] = None):
     """
     Coregister all DEMs in the data/results/dems/ directory.
 
@@ -257,9 +291,9 @@ def coregister_all_dems(overwrite: bool = False, n_threads=1):
         filenames = [fp for fp in filenames if fp not in existing]
 
     filepaths = [os.path.join(terradem.files.DIRECTORY_PATHS["dems"], fp) for fp in filenames]
-    random.shuffle(filepaths)
-
-    #filepaths = filepaths[:100]
+    if subset is not None:
+        random.shuffle(filepaths)
+        filepaths = filepaths[:subset]
 
     progress_bar = tqdm(total=len(filepaths), desc="Coregistering DEMs", smoothing=0)
 
@@ -283,3 +317,83 @@ def coregister_all_dems(overwrite: bool = False, n_threads=1):
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
             list(executor.map(coregister, filepaths))
+
+
+def transform_orthomosaic(transform_path: str, overwrite: bool = False) -> bool:
+    """
+    Transform an orthomosaic using its corresponding transform object.
+
+    A DEM and orthomosaic with the same station name as the transform will be matched.
+
+    :param transform_path: Path to the json transform object.
+    :param overwrite: If False, the transformation will be skipped if a file already exists.
+
+    :returns: A boolean flag of whether it failed or not.
+    """
+    station_name = os.path.basename(transform_path).replace("_dense_DEM.json", "")
+
+    ortho_path = os.path.join(terradem.files.DIRECTORY_PATHS["orthos"], f"{station_name}_orthomosaic.tif")
+    dem_path = os.path.join(terradem.files.DIRECTORY_PATHS["dems"], f"{station_name}_dense_DEM.tif")
+
+    output_path = os.path.join(terradem.files.TEMP_SUBDIRS["orthos_coreg"], os.path.basename(ortho_path))
+
+    if not overwrite and os.path.isfile(output_path):
+        return False
+
+    with open(transform_path) as infile:
+        transform = json.load(infile)
+
+    transform["matrix"] = np.array(transform["matrix"])
+    if abs(transform["matrix"][2, 3]) > 50:
+        return False
+
+    ortho = gu.Raster(ortho_path)
+    dem = gu.Raster(dem_path).reproject(ortho)
+
+    data = np.vstack((dem.data.filled(np.nan), ortho.data[:1, :, :].astype("float32").filled(np.nan)))
+
+    transformed_data = apply_matrix(data, transform=ortho.transform,
+                                    matrix=np.array(transform["matrix"]), centroid=transform["centroid"])
+
+    new_ortho_data = np.ma.masked_array(transformed_data[1, :, :].astype(
+        ortho.data.dtype), mask=np.isnan(transformed_data[1, :, :]))
+
+    meta = ortho.ds.meta
+    meta["count"] = 2
+    with rio.open(output_path, mode="w", compress="lzw", **meta) as raster:
+        raster.write(new_ortho_data, 1)
+        raster.write(((~new_ortho_data.mask).astype(int) * 255).astype("uint8"), 2)
+        raster.colorinterp = (rio.enums.ColorInterp.gray, rio.enums.ColorInterp.alpha)
+
+    return True
+
+
+def transform_all_orthomosaics(overwrite: bool = False, n_threads: int = 1):
+
+    transforms = [os.path.join(terradem.files.TEMP_SUBDIRS["coreg_matrices"], fn)
+                  for fn in os.listdir(terradem.files.TEMP_SUBDIRS["coreg_matrices"])]
+
+    if not overwrite:
+        finished_stations = [s[:s.index("_ortho")]
+                             for s in os.listdir(terradem.files.TEMP_SUBDIRS["orthos_coreg"]) if s.endswith(".tif")]
+
+        transforms = [path for path in transforms if
+                      os.path.basename(path).replace("_dense_DEM.json", "") not in finished_stations]
+
+    progress_bar = tqdm(total=len(transforms), desc="Transforming orthomosaics", smoothing=0)
+
+    # If only one thread should be used, loop in a normal python loop (easier to debug)
+    if n_threads == 1:
+        for transform_path in transforms:
+            transform_orthomosaic(transform_path, overwrite=overwrite)
+            progress_bar.update()
+    # Otherwise, deploy multiple asynchronous threads.
+    else:
+        def transform_ortho(transform_path):
+            transform_orthomosaic(transform_path, overwrite=overwrite)
+            progress_bar.update()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n_threads) as executor:
+            list(executor.map(transform_ortho, transforms))
+
+    progress_bar.close()

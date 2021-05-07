@@ -12,7 +12,7 @@ from tqdm import tqdm
 # URLs to the data
 DATA_URLS = {
     "results": "https://schyttholmlund.com/share/terra/terra_results.tar.gz",
-    "external": os.getenv("TERRADEM_EXTERNAL_URL"),
+    "external": os.getenv("TERRADEM_EXTERNAL_URL") or "",
 }
 
 
@@ -28,6 +28,8 @@ TEMP_DIRECTORY = os.path.join(BASE_DIRECTORY, "temp/")
 TEMP_SUBDIRS = {
     "dems_coreg": os.path.join(TEMP_DIRECTORY, "dems_coreg"),
     "coreg_matrices": os.path.join(TEMP_DIRECTORY, "coreg_matrices"),
+    "orthos_coreg": os.path.join(TEMP_DIRECTORY, "orthos_coreg"),
+    "ddems": os.path.join(TEMP_DIRECTORY, "ddems/")
 }
 
 for key in TEMP_SUBDIRS:
@@ -38,11 +40,14 @@ DIRECTORY_PATHS = {
     "external": os.path.join(BASE_DIRECTORY, "data/", "external/"),
     "results": os.path.join(BASE_DIRECTORY, "data/", "results/"),
     "dems": os.path.join(BASE_DIRECTORY, "data/results/dems/"),
+    "orthos": os.path.join(BASE_DIRECTORY, "data/results/orthos"),
 }
 
-EXTERNAL_DATA_PATHS = {
+INPUT_FILE_PATHS = {
     "base_dem": os.path.join(DIRECTORY_PATHS["external"], "rasters", "base_dem.tif"),
-    "stable_ground_mask": os.path.join(DIRECTORY_PATHS["results"], "masks", "stable_ground_mask.tif")
+    "base_dem_years": os.path.join(DIRECTORY_PATHS["external"], "rasters", "base_dem_years.tif"),
+    "stable_ground_mask": os.path.join(DIRECTORY_PATHS["results"], "masks", "stable_ground_mask.tif"),
+    "swisstopo_metadata": os.path.join(DIRECTORY_PATHS["results"], "metadata", "image_meta.csv"),
 }
 
 
