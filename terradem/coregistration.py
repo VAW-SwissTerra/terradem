@@ -209,6 +209,7 @@ def coregister_dem(filepath: str,
             "Mean of empty slice",  # A warning turned-error of the bias correction
             "registerModelToScene",  # ICP may fail because of lacking data.
             "ICP coregistration failed",  # This happens if the point clouds were not even close to converging.
+            "axis 1 is out of bounds",  # I honestly don't know what this comes from. Too few points?
         ]
         for e_string in allowed_exceptions:
             if e_string in str(exception):

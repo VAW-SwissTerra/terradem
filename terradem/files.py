@@ -29,7 +29,13 @@ TEMP_SUBDIRS = {
     "dems_coreg": os.path.join(TEMP_DIRECTORY, "dems_coreg"),
     "coreg_matrices": os.path.join(TEMP_DIRECTORY, "coreg_matrices"),
     "orthos_coreg": os.path.join(TEMP_DIRECTORY, "orthos_coreg"),
-    "ddems": os.path.join(TEMP_DIRECTORY, "ddems/")
+    "ddems_coreg": os.path.join(TEMP_DIRECTORY, "ddems_coreg/"),
+    "ddems_coreg_filtered": os.path.join(TEMP_DIRECTORY, "ddems_coreg_filtered"),
+    "ddems_non_coreg": os.path.join(TEMP_DIRECTORY, "ddems_non_coreg")
+}
+TEMP_FILES = {
+    "ddem_stats": os.path.join(TEMP_DIRECTORY, "ddem_stats.csv"),
+    "ddem_coreg_filtered": os.path.join(TEMP_DIRECTORY, "ddem_coreg_filtered.tif"),
 }
 
 for key in TEMP_SUBDIRS:
