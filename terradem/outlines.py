@@ -41,7 +41,8 @@ def hypsometric():
     ref_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
     ddem_ds = rio.open("temp/merged_ddem.tif")
 
-    bounds = rio.coords.BoundingBox(left=626790, top=176570, right=684890, bottom=135150)
+    bounds = rio.coords.BoundingBox(left=626790, top=176570, right=644890, bottom=135150)
+    bounds = *ddem_ds.bounds  # Remove this to create only a testing subset.
     window = ddem_ds.window(*bounds)
 
     assert glacier_indices_ds.shape == ref_dem_ds.shape == ddem_ds.shape
@@ -52,10 +53,18 @@ def hypsometric():
     glacier_indices = glacier_indices_ds.read(1, masked=True, window=window).filled(0)
 
     print("Extracting signal")
+    signal = xdem.volume.get_regional_hypsometric_signal(
+        ddem=ddem,
+        ref_dem=ref_dem,
+        glacier_index_map=glacier_indices,
+        verbose=True
+    )
+    signal.to_csv("temp/hypsometric_signal.csv")
     interpolated_ddem = xdem.volume.norm_regional_hypsometric_interpolation(
         voided_ddem=ddem,
         ref_dem=ref_dem,
         glacier_index_map=glacier_indices,
+        regional_signal=signal,
         verbose=True)
 
     meta = ddem_ds.meta
