@@ -22,7 +22,8 @@ CHECKSUMS = {
     "terra_inputs.tar.gz": "4b9c1d5d4bc43cd0d97a303567ffe981"
 }
 
-BASE_DIRECTORY = os.path.abspath(os.path.join(os.path.join(os.path.dirname(__file__), os.path.pardir)))
+BASE_DIRECTORY = os.path.abspath(os.path.join(
+    os.path.join(os.path.dirname(__file__), os.path.pardir)))
 TEMP_DIRECTORY = os.path.join(BASE_DIRECTORY, "temp/")
 
 TEMP_SUBDIRS = {
@@ -31,11 +32,14 @@ TEMP_SUBDIRS = {
     "orthos_coreg": os.path.join(TEMP_DIRECTORY, "orthos_coreg"),
     "ddems_coreg": os.path.join(TEMP_DIRECTORY, "ddems_coreg/"),
     "ddems_coreg_filtered": os.path.join(TEMP_DIRECTORY, "ddems_coreg_filtered"),
-    "ddems_non_coreg": os.path.join(TEMP_DIRECTORY, "ddems_non_coreg")
+    "ddems_coreg_tcorr": os.path.join(TEMP_DIRECTORY, "ddems_coreg_tcorr/"),
+    "ddems_non_coreg": os.path.join(TEMP_DIRECTORY, "ddems_non_coreg"),
+    "tcorr_meta_coreg": os.path.join(TEMP_DIRECTORY, "tcorr_meta_coreg/"),
 }
 TEMP_FILES = {
     "ddem_stats": os.path.join(TEMP_DIRECTORY, "ddem_stats.csv"),
     "ddem_coreg_filtered": os.path.join(TEMP_DIRECTORY, "ddem_coreg_filtered.tif"),
+    "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
 }
 
 for key in TEMP_SUBDIRS:
@@ -54,6 +58,8 @@ INPUT_FILE_PATHS = {
     "base_dem_years": os.path.join(DIRECTORY_PATHS["external"], "rasters", "base_dem_years.tif"),
     "stable_ground_mask": os.path.join(DIRECTORY_PATHS["results"], "masks", "stable_ground_mask.tif"),
     "swisstopo_metadata": os.path.join(DIRECTORY_PATHS["results"], "metadata", "image_meta.csv"),
+    "massbalance_index": os.path.join(DIRECTORY_PATHS["external"], "mass_balance", "massbalance_index.dat"),
+    "lk50_outlines": os.path.join(DIRECTORY_PATHS["results"], "outlines", "lk50_outlines.shp"),
 }
 
 
@@ -88,11 +94,14 @@ def _download_file(url: str, output_directory: str):
     # tqdm tracks the progress by progress.update(datasize)
     with requests.get(url, stream=True) as reader, open(dl_path, "wb") as outfile, tqdm(
             unit="B",  # unit string to be displayed.
-            unit_scale=True,  # let tqdm to determine the scale in kilo, mega..etc.
+            # let tqdm to determine the scale in kilo, mega..etc.
+            unit_scale=True,
             unit_divisor=1024,  # is used when unit_scale is true
             total=filesize,  # the total iteration.
-            file=sys.stdout,  # default goes to stderr, this is the display on console.
-            desc=f"Downloading {filename}"  # prefix to be displayed on progress bar.
+            # default goes to stderr, this is the display on console.
+            file=sys.stdout,
+            # prefix to be displayed on progress bar.
+            desc=f"Downloading {filename}"
     ) as progress:
         for chunk in reader.iter_content(chunk_size=chunk_size):
             # download the file chunk by chunk
@@ -136,11 +145,13 @@ def get_data(overwrite: bool = False):
     :raises AssertionError: If the hash of a newly downloaded file is invalid.
     """
     for key in DATA_URLS:
-        filepath = os.path.join(DIRECTORY_PATHS["data"], os.path.basename(DATA_URLS[key]))
+        filepath = os.path.join(
+            DIRECTORY_PATHS["data"], os.path.basename(DATA_URLS[key]))
         if overwrite or not _verify_hash(filepath):
             _download_file(DATA_URLS[key], DIRECTORY_PATHS["data"])
             if not _verify_hash(filepath):
-                raise AssertionError("Downloaded file hash does not match the expected hash.")
+                raise AssertionError(
+                    "Downloaded file hash does not match the expected hash.")
 
         if not overwrite and _get_directory_size(DIRECTORY_PATHS[key]) > 1024:
             continue

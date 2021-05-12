@@ -27,3 +27,14 @@ def list_files(directory: str, pattern: str = ".*") -> list[str]:
         files.append(filepath)
 
     return files
+
+
+def station_from_filepath(filepath: str) -> str:
+    """Parse the station_XXXX part from a filepath."""
+    basename = os.path.basename(filepath)
+
+    station = basename[:12]
+
+    assert station.startswith("station_")
+
+    return station
