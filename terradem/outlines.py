@@ -1,5 +1,5 @@
 """Scripts for handling glacier outlines."""
-
+import os
 
 import geopandas as gpd
 import numpy as np
@@ -7,73 +7,34 @@ import rasterio as rio
 import rasterio.features
 
 import terradem.files
-import xdem
 
 
-def rasterize_outlines():
+def rasterize_outlines(overwrite: bool = False):
+    """
+    Create a glacier index map from the LK50 outlines, giving the same index +1 as they occur in the shapefile.
 
-    lk50 = gpd.read_file("data/results/outlines/lk50_outlines.shp")
+    :param overwrite: Overwrite if it already exists?
+    """
 
-    values = [(geom, i)
-              for i, geom in enumerate(lk50.geometry.values, start=1)]
+    if not overwrite and os.path.isfile(terradem.files.TEMP_FILES["lk50_rasterized"]):
+        return
 
-    print(values[:10])
+    # Read the lk50 glacier outlines
+    lk50 = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
 
-    base_dem = rio.open(
-        terradem.files.INPUT_FILE_PATHS["base_dem"], load_data=False)
+    # Read the base DEM (to mirror its metadata)
+    base_dem = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"], load_data=False)
 
+    # Rasterize the lk50 outlines, associating the same index of the shapefile (plus 1) as the glacier. Periglacial = 0
     rasterized = rasterio.features.rasterize(
-        values, out_shape=base_dem.shape, default_value=0, dtype="uint16", transform=base_dem.transform)
+        [(geom, i) for i, geom in enumerate(lk50.geometry.values, start=1)],
+        out_shape=base_dem.shape, default_value=0, dtype="uint16", transform=base_dem.transform)
 
+    # Check that at least one glacier was covered.
     assert rasterized.max() > 0
 
+    # Write the mask
     meta = base_dem.meta
     meta.update(dict(compress="lzw", tiled=True, dtype="uint16", nodata=None))
-    with rio.open("temp/lk50_rasterized.tif", "w", **meta) as raster:
+    with rio.open(terradem.files.TEMP_FILES["lk50_rasterized"], "w", **meta) as raster:
         raster.write(rasterized, 1)
-
-    print(rasterized)
-
-
-def hypsometric():
-
-    glacier_indices_ds = rio.open("temp/lk50_rasterized.tif")
-    ref_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
-    ddem_ds = rio.open("temp/merged_ddem.tif")
-
-    bounds = rio.coords.BoundingBox(left=626790, top=176570, right=644890, bottom=135150)
-    bounds = *ddem_ds.bounds  # Remove this to create only a testing subset.
-    window = ddem_ds.window(*bounds)
-
-    assert glacier_indices_ds.shape == ref_dem_ds.shape == ddem_ds.shape
-
-    print("Reading data")
-    ddem = ddem_ds.read(1, masked=True, window=window).filled(np.nan)
-    ref_dem = ref_dem_ds.read(1, masked=True, window=window).filled(1000)
-    glacier_indices = glacier_indices_ds.read(1, masked=True, window=window).filled(0)
-
-    print("Extracting signal")
-    signal = xdem.volume.get_regional_hypsometric_signal(
-        ddem=ddem,
-        ref_dem=ref_dem,
-        glacier_index_map=glacier_indices,
-        verbose=True
-    )
-    signal.to_csv("temp/hypsometric_signal.csv")
-    interpolated_ddem = xdem.volume.norm_regional_hypsometric_interpolation(
-        voided_ddem=ddem,
-        ref_dem=ref_dem,
-        glacier_index_map=glacier_indices,
-        regional_signal=signal,
-        verbose=True)
-
-    meta = ddem_ds.meta
-    meta.update(dict(
-        compress="deflate",
-        tiled=True,
-        height=ddem.shape[0],
-        width=ddem.shape[1],
-        transform=rio.transform.from_bounds(*bounds, width=ddem.shape[1], height=ddem.shape[0])
-    ))
-    with rio.open("temp/interpolated_ddem.tif", "w", **meta) as raster:
-        raster.write(interpolated_ddem, 1)

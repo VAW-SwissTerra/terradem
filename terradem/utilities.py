@@ -30,10 +30,12 @@ def list_files(directory: str, pattern: str = ".*") -> list[str]:
 
 
 def station_from_filepath(filepath: str) -> str:
-    """Parse the station_XXXX part from a filepath."""
+    """Parse the station_XXXX or station_XXXX_Y part from a filepath."""
     basename = os.path.basename(filepath)
 
-    station = basename[:12]
+    max_index = 14 if "_A" in basename or "_B" in basename else 12
+
+    station = basename[:max_index]
 
     assert station.startswith("station_")
 

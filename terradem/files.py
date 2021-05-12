@@ -22,8 +22,7 @@ CHECKSUMS = {
     "terra_inputs.tar.gz": "4b9c1d5d4bc43cd0d97a303567ffe981"
 }
 
-BASE_DIRECTORY = os.path.abspath(os.path.join(
-    os.path.join(os.path.dirname(__file__), os.path.pardir)))
+BASE_DIRECTORY = os.path.abspath(os.path.join(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 TEMP_DIRECTORY = os.path.join(BASE_DIRECTORY, "temp/")
 
 TEMP_SUBDIRS = {
@@ -38,7 +37,11 @@ TEMP_SUBDIRS = {
 }
 TEMP_FILES = {
     "ddem_stats": os.path.join(TEMP_DIRECTORY, "ddem_stats.csv"),
+    "ddem_coreg": os.path.join(TEMP_DIRECTORY, "ddem_coreg.tif"),
     "ddem_coreg_filtered": os.path.join(TEMP_DIRECTORY, "ddem_coreg_filtered.tif"),
+    "ddem_coreg_tcorr": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr.tif"),
+    "ddem_coreg_tcorr_interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp.tif"),
+    "ddem_coreg_tcorr_interp_signal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp_signal.csv"),
     "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
 }
 
