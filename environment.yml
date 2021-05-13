@@ -15,5 +15,7 @@ dependencies:
         - pytest
         - pip:
                 - pytransform3d
-                - git+https://github.com/GlacioHack/xdem.git
+                - https://github.com/GlacioHack/GeoUtils/tarball/master
+                - https://github.com/GlacioHack/xdem/tarball/main
+
 

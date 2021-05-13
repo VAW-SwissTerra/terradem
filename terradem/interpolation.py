@@ -1,5 +1,8 @@
 """Functions for dDEM / DEM interpolation."""
+from typing import Optional
+
 import numpy as np
+import pandas as pd
 import rasterio as rio
 
 import terradem.files
@@ -7,7 +10,7 @@ import xdem
 
 
 def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, output_signal_filepath: str,
-                                    min_coverage: float = 0.1):
+                                    min_coverage: float = 0.1, signal: Optional[pd.DataFrame] = None):
     """
     Interpolate gaps in a dDEM using normalized regional hypsometric interpolation.
 
@@ -29,14 +32,15 @@ def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, ou
     glacier_indices = glacier_indices_ds.read(1, masked=True, window=glacier_indices_ds.window(*bounds),
                                               ).filled(0)
 
-    print("Extracting signal")
-    signal = xdem.volume.get_regional_hypsometric_signal(
-        ddem=ddem,
-        ref_dem=ref_dem,
-        glacier_index_map=glacier_indices,
-        verbose=True
-    )
-    signal.to_csv(output_signal_filepath)
+    if signal is None:
+        print("Extracting signal")
+        signal = xdem.volume.get_regional_hypsometric_signal(
+            ddem=ddem,
+            ref_dem=ref_dem,
+            glacier_index_map=glacier_indices,
+            verbose=True
+        )
+        signal.to_csv(output_signal_filepath)
     interpolated_ddem = xdem.volume.norm_regional_hypsometric_interpolation(
         voided_ddem=ddem,
         ref_dem=ref_dem,
