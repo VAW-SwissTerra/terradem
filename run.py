@@ -5,6 +5,7 @@ import terradem.coregistration
 import terradem.dem_tools
 import terradem.files
 import terradem.interpolation
+import terradem.outlines
 import terradem.utilities
 
 
@@ -53,6 +54,10 @@ def main():
 
     # Use the transforms obtained in the coregistration to transform the orthomosaics accordingly.
     # terradem.coregistration.transform_all_orthomosaics()
+
+    outline_differences = terradem.outlines.validate_outlines()
+
+    print(outline_differences.mean())
 
 
 if __name__ == "__main__":

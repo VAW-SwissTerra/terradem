@@ -54,6 +54,7 @@ DIRECTORY_PATHS = {
     "results": os.path.join(BASE_DIRECTORY, "data/", "results/"),
     "dems": os.path.join(BASE_DIRECTORY, "data/results/dems/"),
     "orthos": os.path.join(BASE_DIRECTORY, "data/results/orthos"),
+    "manual_input": os.path.join(BASE_DIRECTORY, "manual_input"),
 }
 
 INPUT_FILE_PATHS = {
@@ -63,6 +64,7 @@ INPUT_FILE_PATHS = {
     "swisstopo_metadata": os.path.join(DIRECTORY_PATHS["results"], "metadata", "image_meta.csv"),
     "massbalance_index": os.path.join(DIRECTORY_PATHS["external"], "mass_balance", "massbalance_index.dat"),
     "lk50_outlines": os.path.join(DIRECTORY_PATHS["results"], "outlines", "lk50_outlines.shp"),
+    "digitized_outlines": os.path.join(DIRECTORY_PATHS["manual_input"], "digitized_outlines.geojson")
 }
 
 
