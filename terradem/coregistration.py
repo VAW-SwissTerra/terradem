@@ -20,6 +20,7 @@ import rasterio.warp
 import scipy.interpolate
 import scipy.ndimage
 import shapely
+import skimage.transform
 import xdem
 from tqdm import tqdm
 
@@ -345,11 +346,65 @@ def transform_orthomosaic(transform_path: str, overwrite: bool = False) -> bool:
         transform = json.load(infile)
 
     transform["matrix"] = np.array(transform["matrix"])
+    transform["centroid"] = np.array(transform["centroid"])
     if abs(transform["matrix"][2, 3]) > 50:
         return False
 
-    ortho = gu.Raster(ortho_path)
-    dem = gu.Raster(dem_path).reproject(ortho)
+    ortho_ds = rio.open(ortho_path)
+    dem_ds = rio.open(dem_path)
+
+    ortho = ortho_ds.read(1, masked=True).filled(0)
+
+    dem = np.zeros(ortho.shape, dtype="float32")
+
+    rasterio.warp.reproject(dem_ds.read(1, masked=True).filled(np.nan),
+                            destination=dem,
+                            src_transform=dem_ds.transform,
+                            dst_transform=ortho_ds.transform,
+                            dst_resolution=ortho_ds.res,
+                            src_crs=dem_ds.crs,
+                            dst_crs=ortho_ds.crs,
+
+                            )
+
+    #ortho = gu.Raster(ortho_path)
+    #dem = gu.Raster(dem_path).reproject(ortho)
+
+    point_cloud = np.dstack(xdem.coreg._get_x_and_y_coords(
+        dem.shape, ortho_ds.transform) + (dem,)).reshape((-1, 3))
+    outlier_mask = ~np.isfinite(point_cloud[:, 2])
+    point_cloud[outlier_mask, 2] = np.nanmedian(point_cloud[:, 2])
+
+    point_cloud -= transform["centroid"].T
+
+    transformed_cloud = cv2.perspectiveTransform(point_cloud.reshape((1, -1, 3)), transform["matrix"]).reshape((-1, 3))
+
+    difference = ((transformed_cloud[:, :2] - point_cloud[:, :2]) / ortho_ds.res)[:, ::-1]
+    difference[:, 0] *= -1
+
+    pixel_coordinates = np.mgrid[0:dem.shape[0], 0:dem.shape[1]] - difference.T.reshape((2,) + dem.shape)
+
+    new_ortho_arr = skimage.transform.warp(
+        image=ortho,
+        inverse_map=pixel_coordinates,
+        preserve_range=True,
+        order=1
+    ).astype("uint8")
+
+    new_mask = skimage.transform.warp(
+        image=outlier_mask.reshape(ortho.shape).astype("uint8"),
+        inverse_map=pixel_coordinates,
+        order=0,
+        cval=1,
+    ).astype(bool)
+
+    meta = ortho_ds.meta
+    meta.update(dict(nodata=0, count=1, compress="lzw"))
+
+    with rio.open(output_path, "w", **meta) as raster:
+        raster.write(np.where(new_mask, 0, new_ortho_arr), 1)
+
+    return
 
     data = np.vstack((dem.data.filled(np.nan), ortho.data[:1, :, :].astype("float32").filled(np.nan)))
 
