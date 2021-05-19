@@ -34,6 +34,7 @@ TEMP_SUBDIRS = {
     "ddems_coreg_tcorr": os.path.join(TEMP_DIRECTORY, "ddems_coreg_tcorr/"),
     "ddems_non_coreg": os.path.join(TEMP_DIRECTORY, "ddems_non_coreg"),
     "tcorr_meta_coreg": os.path.join(TEMP_DIRECTORY, "tcorr_meta_coreg/"),
+    "rasterized_sgi_zones": os.path.join(TEMP_DIRECTORY, "rasterized_sgi_zones"),
 }
 TEMP_FILES = {
     "ddem_stats": os.path.join(TEMP_DIRECTORY, "ddem_stats.csv"),
@@ -64,6 +65,7 @@ INPUT_FILE_PATHS = {
     "swisstopo_metadata": os.path.join(DIRECTORY_PATHS["results"], "metadata", "image_meta.csv"),
     "massbalance_index": os.path.join(DIRECTORY_PATHS["external"], "mass_balance", "massbalance_index.dat"),
     "lk50_outlines": os.path.join(DIRECTORY_PATHS["results"], "outlines", "lk50_outlines.shp"),
+    "sgi_2016": os.path.join(DIRECTORY_PATHS["external"], "shapefiles", "SGI_2016_glaciers.shp"),
     "digitized_outlines": os.path.join(DIRECTORY_PATHS["manual_input"], "digitized_outlines.geojson")
 }
 

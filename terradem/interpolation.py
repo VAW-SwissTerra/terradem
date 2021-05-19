@@ -59,3 +59,7 @@ def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, ou
     ))
     with rio.open(output_filepath, "w", **meta) as raster:
         raster.write(np.where(np.isfinite(interpolated_ddem), interpolated_ddem, ddem_ds.nodata), 1)
+
+def regional_hypsometric(ddem_filepath: str, output_filepath: str):
+    pass
+    
