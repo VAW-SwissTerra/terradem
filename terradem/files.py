@@ -35,6 +35,7 @@ TEMP_SUBDIRS = {
     "ddems_non_coreg": os.path.join(TEMP_DIRECTORY, "ddems_non_coreg"),
     "tcorr_meta_coreg": os.path.join(TEMP_DIRECTORY, "tcorr_meta_coreg/"),
     "rasterized_sgi_zones": os.path.join(TEMP_DIRECTORY, "rasterized_sgi_zones"),
+    "hypsometric_signals": os.path.join(TEMP_DIRECTORY, "hypsometric_signals"),
 }
 TEMP_FILES = {
     "ddem_stats": os.path.join(TEMP_DIRECTORY, "ddem_stats.csv"),

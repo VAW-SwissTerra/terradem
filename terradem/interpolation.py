@@ -1,11 +1,14 @@
 """Functions for dDEM / DEM interpolation."""
+import os
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 import rasterio as rio
+from tqdm import tqdm
 
 import terradem.files
+import terradem.outlines
 import xdem
 
 
@@ -60,6 +63,29 @@ def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, ou
     with rio.open(output_filepath, "w", **meta) as raster:
         raster.write(np.where(np.isfinite(interpolated_ddem), interpolated_ddem, ddem_ds.nodata), 1)
 
+
+def get_regional_signals(level: int = 1):
+
+    ref_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
+    ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
+
+    print("Reading data")
+    ref_dem = ref_dem_ds.read(1, masked=True).filled(-9999)
+    ddem = ddem_ds.read(1, masked=True).filled(np.nan)
+
+    assert ref_dem.shape == ddem.shape
+
+    for region in tqdm(terradem.outlines.get_sgi_regions(level=level)):
+
+        glacier_indices_ds = rio.open(os.path.join(
+            terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif"))
+
+        glacier_indices = glacier_indices_ds.read(1)
+
+        signal = xdem.volume.get_regional_hypsometric_signal(
+            ref_dem=ref_dem, ddem=ddem, glacier_index_map=glacier_indices)
+        signal.to_csv(os.path.join(terradem.files.TEMP_SUBDIRS["hypsometric_signals"], f"SGI_{region}_normalized.csv"))
+
+
 def regional_hypsometric(ddem_filepath: str, output_filepath: str):
     pass
-    

@@ -1,11 +1,11 @@
 """Scripts for handling glacier outlines."""
-import os
 import itertools
+import os
 from typing import Optional
 
 import geopandas as gpd
-import pandas as pd
 import numpy as np
+import pandas as pd
 import rasterio as rio
 import rasterio.features
 import shapely
@@ -67,7 +67,6 @@ def get_sgi_regions(level: int) -> dict[str, gpd.GeoDataFrame]:
     return output
 
 
-
 def rasterize_sgi_zones(level=1, overwrite: bool = False):
     """
     Rasterize the LK50 outlines by SGI subregion level.
@@ -78,7 +77,6 @@ def rasterize_sgi_zones(level=1, overwrite: bool = False):
     for region, data in tqdm(get_sgi_regions(level=level).items()):
         output_path = os.path.join(terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif")
         rasterize_outlines(outlines=data, output_filepath=output_path, overwrite=overwrite)
-
 
 
 def validate_outlines(n_points_per_line=100) -> pd.DataFrame:
@@ -100,7 +98,6 @@ def validate_outlines(n_points_per_line=100) -> pd.DataFrame:
         # Extract the corresponding LK50 outlines and convert their exteriors to one MultiLineString collection
         matching_outlines = lk50_outlines.loc[lk50_outlines["SGI"] == sgi_id]
 
-        
         # Extract the exteriors of each polygon (possibly inside a multipolygon collection)
         exteriors: list[shapely.geometry.base.BaseGeometry] = []
         for geometry in matching_outlines.geometry:
@@ -132,5 +129,3 @@ def validate_outlines(n_points_per_line=100) -> pd.DataFrame:
         errors.loc[sgi_id, "count"] = distances.shape[0]
 
     return errors
-
-
