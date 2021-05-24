@@ -19,10 +19,12 @@ DATA_URLS = {
 # Expected MD5 checksums for the downloaded files.
 CHECKSUMS = {
     "terra_results.tar.gz": "89a705790195f6021a1e79a7c2edcf85",
-    "terra_inputs.tar.gz": "4b9c1d5d4bc43cd0d97a303567ffe981"
+    "terra_inputs.tar.gz": "4b9c1d5d4bc43cd0d97a303567ffe981",
 }
 
-BASE_DIRECTORY = os.path.abspath(os.path.join(os.path.join(os.path.dirname(__file__), os.path.pardir)))
+BASE_DIRECTORY = os.path.abspath(
+    os.path.join(os.path.join(os.path.dirname(__file__), os.path.pardir))
+)
 TEMP_DIRECTORY = os.path.join(BASE_DIRECTORY, "temp/")
 
 TEMP_SUBDIRS = {
@@ -42,8 +44,12 @@ TEMP_FILES = {
     "ddem_coreg": os.path.join(TEMP_DIRECTORY, "ddem_coreg.tif"),
     "ddem_coreg_filtered": os.path.join(TEMP_DIRECTORY, "ddem_coreg_filtered.tif"),
     "ddem_coreg_tcorr": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr.tif"),
-    "ddem_coreg_tcorr_interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp.tif"),
-    "ddem_coreg_tcorr_interp_signal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp_signal.csv"),
+    "ddem_coreg_tcorr_interp": os.path.join(
+        TEMP_DIRECTORY, "ddem_coreg_tcorr_interp.tif"
+    ),
+    "ddem_coreg_tcorr_interp_signal": os.path.join(
+        TEMP_DIRECTORY, "ddem_coreg_tcorr_interp_signal.csv"
+    ),
     "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
 }
 
@@ -61,13 +67,27 @@ DIRECTORY_PATHS = {
 
 INPUT_FILE_PATHS = {
     "base_dem": os.path.join(DIRECTORY_PATHS["external"], "rasters", "base_dem.tif"),
-    "base_dem_years": os.path.join(DIRECTORY_PATHS["external"], "rasters", "base_dem_years.tif"),
-    "stable_ground_mask": os.path.join(DIRECTORY_PATHS["results"], "masks", "stable_ground_mask.tif"),
-    "swisstopo_metadata": os.path.join(DIRECTORY_PATHS["results"], "metadata", "image_meta.csv"),
-    "massbalance_index": os.path.join(DIRECTORY_PATHS["external"], "mass_balance", "massbalance_index.dat"),
-    "lk50_outlines": os.path.join(DIRECTORY_PATHS["results"], "outlines", "lk50_outlines.shp"),
-    "sgi_2016": os.path.join(DIRECTORY_PATHS["external"], "shapefiles", "SGI_2016_glaciers.shp"),
-    "digitized_outlines": os.path.join(DIRECTORY_PATHS["manual_input"], "digitized_outlines.geojson")
+    "base_dem_years": os.path.join(
+        DIRECTORY_PATHS["external"], "rasters", "base_dem_years.tif"
+    ),
+    "stable_ground_mask": os.path.join(
+        DIRECTORY_PATHS["results"], "masks", "stable_ground_mask.tif"
+    ),
+    "swisstopo_metadata": os.path.join(
+        DIRECTORY_PATHS["results"], "metadata", "image_meta.csv"
+    ),
+    "massbalance_index": os.path.join(
+        DIRECTORY_PATHS["external"], "mass_balance", "massbalance_index.dat"
+    ),
+    "lk50_outlines": os.path.join(
+        DIRECTORY_PATHS["results"], "outlines", "lk50_outlines.shp"
+    ),
+    "sgi_2016": os.path.join(
+        DIRECTORY_PATHS["external"], "shapefiles", "SGI_2016_glaciers.shp"
+    ),
+    "digitized_outlines": os.path.join(
+        DIRECTORY_PATHS["manual_input"], "digitized_outlines.geojson"
+    ),
 }
 
 
@@ -101,15 +121,15 @@ def _download_file(url: str, output_directory: str):
     # the contents will be written to the dl_path.
     # tqdm tracks the progress by progress.update(datasize)
     with requests.get(url, stream=True) as reader, open(dl_path, "wb") as outfile, tqdm(
-            unit="B",  # unit string to be displayed.
-            # let tqdm to determine the scale in kilo, mega..etc.
-            unit_scale=True,
-            unit_divisor=1024,  # is used when unit_scale is true
-            total=filesize,  # the total iteration.
-            # default goes to stderr, this is the display on console.
-            file=sys.stdout,
-            # prefix to be displayed on progress bar.
-            desc=f"Downloading {filename}"
+        unit="B",  # unit string to be displayed.
+        # let tqdm to determine the scale in kilo, mega..etc.
+        unit_scale=True,
+        unit_divisor=1024,  # is used when unit_scale is true
+        total=filesize,  # the total iteration.
+        # default goes to stderr, this is the display on console.
+        file=sys.stdout,
+        # prefix to be displayed on progress bar.
+        desc=f"Downloading {filename}",
     ) as progress:
         for chunk in reader.iter_content(chunk_size=chunk_size):
             # download the file chunk by chunk
@@ -154,12 +174,14 @@ def get_data(overwrite: bool = False):
     """
     for key in DATA_URLS:
         filepath = os.path.join(
-            DIRECTORY_PATHS["data"], os.path.basename(DATA_URLS[key]))
+            DIRECTORY_PATHS["data"], os.path.basename(DATA_URLS[key])
+        )
         if overwrite or not _verify_hash(filepath):
             _download_file(DATA_URLS[key], DIRECTORY_PATHS["data"])
             if not _verify_hash(filepath):
                 raise AssertionError(
-                    "Downloaded file hash does not match the expected hash.")
+                    "Downloaded file hash does not match the expected hash."
+                )
 
         if not overwrite and _get_directory_size(DIRECTORY_PATHS[key]) > 1024:
             continue

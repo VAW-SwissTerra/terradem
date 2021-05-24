@@ -15,8 +15,11 @@ from tqdm import tqdm
 import terradem.files
 
 
-def rasterize_outlines(outlines: Optional[gpd.GeoDataFrame] = None,
-                       output_filepath: str = terradem.files.TEMP_FILES["lk50_rasterized"], overwrite: bool = False):
+def rasterize_outlines(
+    outlines: Optional[gpd.GeoDataFrame] = None,
+    output_filepath: str = terradem.files.TEMP_FILES["lk50_rasterized"],
+    overwrite: bool = False,
+):
     """
     Create a glacier index map from the LK50 outlines, giving the same index +1 as they occur in the shapefile.
 
@@ -27,7 +30,9 @@ def rasterize_outlines(outlines: Optional[gpd.GeoDataFrame] = None,
 
     # Read the lk50 glacier outlines if they weren't provided.
     if outlines is None:
-        lk50 = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"]).sort_values("SGI")
+        lk50 = gpd.read_file(
+            terradem.files.INPUT_FILE_PATHS["lk50_outlines"]
+        ).sort_values("SGI")
         # Index 0 should be stable ground, so start at one.
         lk50.index += 1
     else:
@@ -39,7 +44,11 @@ def rasterize_outlines(outlines: Optional[gpd.GeoDataFrame] = None,
     # Rasterize the lk50 outlines, associating the same index of the shapefile (plus 1) as the glacier. Periglacial = 0
     rasterized = rasterio.features.rasterize(
         [(geom, i) for i, geom in zip(lk50.index, lk50.geometry.values)],
-        out_shape=base_dem.shape, default_value=0, dtype="uint16", transform=base_dem.transform)
+        out_shape=base_dem.shape,
+        default_value=0,
+        dtype="uint16",
+        transform=base_dem.transform,
+    )
 
     # Check that at least one glacier was covered.
     assert rasterized.max() > 0
@@ -56,7 +65,9 @@ def get_sgi_regions(level: int) -> dict[str, gpd.GeoDataFrame]:
         raise ValueError("The max SGI region level is 2")
 
     # Read the LK50 outlines (with the same metadata as the SGI1973, hence containing SGI info)
-    lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"]).sort_values("SGI")
+    lk50_outlines = gpd.read_file(
+        terradem.files.INPUT_FILE_PATHS["lk50_outlines"]
+    ).sort_values("SGI")
 
     lk50_outlines["level"] = ""
     for i in range(level + 1):
@@ -75,8 +86,12 @@ def rasterize_sgi_zones(level=1, overwrite: bool = False):
     :param overwrite: Skip file if it already exists?
     """
     for region, data in tqdm(get_sgi_regions(level=level).items()):
-        output_path = os.path.join(terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif")
-        rasterize_outlines(outlines=data, output_filepath=output_path, overwrite=overwrite)
+        output_path = os.path.join(
+            terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif"
+        )
+        rasterize_outlines(
+            outlines=data, output_filepath=output_path, overwrite=overwrite
+        )
 
 
 def validate_outlines(n_points_per_line=100) -> pd.DataFrame:
@@ -89,7 +104,9 @@ def validate_outlines(n_points_per_line=100) -> pd.DataFrame:
     :param n_points_per_line: How many points to sample for each digitized outline.
     :returns: A DataFrame of distances between the products.
     """
-    digitized_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["digitized_outlines"])
+    digitized_outlines = gpd.read_file(
+        terradem.files.INPUT_FILE_PATHS["digitized_outlines"]
+    )
 
     lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
 
@@ -111,16 +128,26 @@ def validate_outlines(n_points_per_line=100) -> pd.DataFrame:
         # Interpolate points along the digitized outlines to compare with the lk50 outlines.
         points = itertools.chain.from_iterable(
             (
-                (line.interpolate(distance) for distance in np.linspace(0, line.length, num=n_points_per_line))
+                (
+                    line.interpolate(distance)
+                    for distance in np.linspace(0, line.length, num=n_points_per_line)
+                )
                 for line in lines.geometry
             )
         )
 
         # Find the closest point (along the line, not vertex) for each digitized point to the lk50 outlines
-        nearest_points = [shapely.ops.nearest_points(point, lk50_geom) for point in points]
+        nearest_points = [
+            shapely.ops.nearest_points(point, lk50_geom) for point in points
+        ]
 
         # Measure the x and y distances between the points.
-        distances = np.array([[points[1].x - points[0].x, points[1].y - points[0].y] for points in nearest_points])
+        distances = np.array(
+            [
+                [points[1].x - points[0].x, points[1].y - points[0].y]
+                for points in nearest_points
+            ]
+        )
 
         errors.loc[sgi_id, "median"] = np.linalg.norm(np.median(distances, axis=0))
         errors.loc[sgi_id, "mean"] = np.linalg.norm(np.mean(distances, axis=0))
