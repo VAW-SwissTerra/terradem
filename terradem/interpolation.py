@@ -5,11 +5,11 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import rasterio as rio
+import xdem
 from tqdm import tqdm
 
 import terradem.files
 import terradem.outlines
-import xdem
 
 
 def normalized_regional_hypsometric(

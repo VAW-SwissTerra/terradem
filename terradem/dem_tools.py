@@ -12,13 +12,13 @@ import pandas as pd
 import rasterio as rio
 import scipy.ndimage
 import skimage.morphology
+import xdem.spatial_tools
 from tqdm import tqdm
 
 import terradem.files
 import terradem.massbalance
 import terradem.metadata
 import terradem.utilities
-import xdem.spatial_tools
 
 
 def merge_rasters(directory_or_filepaths: Union[str, list[str]], output_path: str):
