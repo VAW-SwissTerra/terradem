@@ -44,6 +44,7 @@ TEMP_FILES = {
     "ddem_coreg_tcorr": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr.tif"),
     "ddem_coreg_tcorr_interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp.tif"),
     "ddem_coreg_tcorr_interp_signal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp_signal.csv"),
+    "ddem_coreg_tcorr_subregion-interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion-interp.tif"),
     "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
 }
 

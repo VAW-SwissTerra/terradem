@@ -38,18 +38,19 @@ def main():
     )
     """
 
-    signal = pd.read_csv(terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"])
-
-    signal.index = pd.IntervalIndex.from_tuples(signal.iloc[:, 0].apply(
-        lambda s: tuple(map(float, s.replace("(", "").replace("]", "").split(",")))))
-
-    signal.drop(columns=signal.columns[0], inplace=True)
-
+    """
     terradem.interpolation.normalized_regional_hypsometric(
         terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
         terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp"],
         terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"],
         signal=signal
+    )
+    """
+    terradem.interpolation.subregion_normalized_hypsometric(
+        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion-interp"],
+        level=1,
+        min_coverage=0.1
     )
 
     # Use the transforms obtained in the coregistration to transform the orthomosaics accordingly.
