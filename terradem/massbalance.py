@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import rasterio as rio
 import shapely
+from tqdm import tqdm
 
 import terradem.dem_tools
 import terradem.files
@@ -84,3 +85,39 @@ def match_zones():
         return factor, zone
 
     return get_mb_factor
+
+
+def get_volume_change():
+
+    glacier_indices_ds = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"])
+
+    ddem_versions = {
+        "non_interp": terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        "norm-regional": terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp"],
+        "norm-regional-sgi1-subregion": terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion-interp"],
+        "norm-regional-sgi0-subregion": terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp"]
+    }
+
+    output = pd.DataFrame(index=ddem_versions.keys(), columns=[
+                          "mean", "median", "std", "area", "volume_change", "coverage"])
+
+    print("Reading glacier mask")
+    glacier_mask = glacier_indices_ds.read(1, masked=True).filled(0) > 0
+    total_area = np.count_nonzero(glacier_mask) * (glacier_indices_ds.res[0] * glacier_indices_ds.res[1])
+
+    for key in tqdm(ddem_versions):
+        ddem_ds = rio.open(ddem_versions[key])
+        ddem_values = ddem_ds.read(1, masked=True).filled(np.nan)[glacier_mask]
+
+        output.loc[key] = {
+            "mean": np.nanmean(ddem_values),
+            "median": np.nanmedian(ddem_values),
+            "std": np.nanstd(ddem_values),
+            "area": total_area,
+            "volume_change": np.nanmean(ddem_values) * total_area,
+            "coverage": np.count_nonzero(np.isfinite(ddem_values)) / np.count_nonzero(glacier_mask)
+        }
+
+    print(output)
+
+    output.to_csv("temp/volume_change.csv")
