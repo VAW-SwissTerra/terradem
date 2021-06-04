@@ -48,16 +48,45 @@ def main():
     )
     """
 
+    """
+    terradem.outlines.rasterize_sgi_zones(level=0, overwrite=False)
+
+    print("Extracting regional signals.")
     terradem.interpolation.get_regional_signals(level=0)
 
+    print("Interpolating dDEM.")
     terradem.interpolation.subregion_normalized_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
         output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp"],
         level=0,
         min_coverage=0.1
     )
+    """
 
-    terradem.massbalance.get_volume_change()
+    print("Generating idealized dDEMs")
+    terradem.interpolation.normalized_regional_hypsometric(
+        terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp"],
+        terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"],
+        signal=terradem.interpolation.read_hypsometric_signal(
+            terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"]),
+    )
+    terradem.interpolation.subregion_normalized_hypsometric(
+        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp-ideal"],
+        level=0,
+        min_coverage=0.1,
+        idealized_ddem=True
+    )
+    terradem.interpolation.subregion_normalized_hypsometric(
+        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion-interp-ideal"],
+        level=1,
+        min_coverage=0.1,
+        idealized_ddem=True
+    )
+
+    # terradem.massbalance.get_volume_change()
 
     # Use the transforms obtained in the coregistration to transform the orthomosaics accordingly.
     # terradem.coregistration.transform_all_orthomosaics()

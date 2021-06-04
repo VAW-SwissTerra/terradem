@@ -1,24 +1,31 @@
 """Plotting functions for different steps in the processing."""
 import os
 
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
-import geopandas as gpd
 import pandas as pd
 
-import terradem.outlines
 import terradem.files
+import terradem.outlines
 import terradem.utilities
 
 
-def plot_hypsometric_signals():
+def plot_hypsometric_signals(level=1):
     """Plot the normalized hypsometric signals."""
-    files = terradem.utilities.list_files(
+
+    files = []
+    for filepath in terradem.utilities.list_files(
         terradem.files.TEMP_SUBDIRS["hypsometric_signals"], r".*\.csv"
-    )
+    ):
+        region = os.path.basename(filepath).split("_")[1]
 
-    outlines = terradem.outlines.get_sgi_regions(level=1)
+        if len(region) != (level + 1):
+            continue
 
+        files.append(filepath)
+
+    outlines = terradem.outlines.get_sgi_regions(level=level)
 
     shape = (7, 4)
 
@@ -40,7 +47,7 @@ def plot_hypsometric_signals():
 
         signal.drop(columns=signal.columns[0], inplace=True)
         signal = signal[~signal["median"].isna()]
-        
+
         covered_area = signal["count"].sum() * 5 ** 2
 
         coverage_percentage = 100 * (covered_area / max_area)
@@ -60,4 +67,4 @@ def plot_hypsometric_signals():
         plt.yticks([])
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig(f"temp/figures/signals_level_{level}.jpg", dpi=600)

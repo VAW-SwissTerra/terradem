@@ -48,6 +48,9 @@ TEMP_FILES = {
     "ddem_coreg_tcorr_interp_signal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp_signal.csv"),
     "ddem_coreg_tcorr_subregion-interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion-interp.tif"),
     "ddem_coreg_tcorr_subregion0-interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion0-interp.tif"),
+    "ddem_coreg_tcorr_interp-ideal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp-ideal.tif"),
+    "ddem_coreg_tcorr_subregion-interp-ideal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion-interp-ideal.tif"),
+    "ddem_coreg_tcorr_subregion0-interp-ideal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion0-interp-ideal.tif"),
     "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
 }
 

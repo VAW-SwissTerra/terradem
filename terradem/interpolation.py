@@ -5,17 +5,17 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import rasterio as rio
-import xdem
 from tqdm import tqdm
 
 import terradem.files
 import terradem.outlines
+import xdem
 
 
 def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, output_signal_filepath: str,
                                     min_coverage: float = 0.1, signal: Optional[pd.DataFrame] = None,
                                     glacier_indices_filepath: str = terradem.files.TEMP_FILES["lk50_rasterized"],
-                                    verbose: bool = True):
+                                    idealized_ddem: bool = False, verbose: bool = True):
     """
     Interpolate gaps in a dDEM using normalized regional hypsometric interpolation.
 
@@ -62,7 +62,9 @@ def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, ou
         glacier_index_map=glacier_indices,
         regional_signal=signal,
         min_coverage=min_coverage,
-        verbose=verbose)
+        idealized_ddem=idealized_ddem,
+        verbose=verbose
+    )
 
     meta = ddem_ds.meta
     meta.update(
@@ -134,7 +136,7 @@ def read_hypsometric_signal(filepath: str) -> pd.DataFrame:
     return signal
 
 
-def subregion_normalized_hypsometric(ddem_filepath: str, output_filepath: str, level: int = 1, min_coverage: float = 0.1):
+def subregion_normalized_hypsometric(ddem_filepath: str, output_filepath: str, level: int = 1, min_coverage: float = 0.1, idealized_ddem: bool = False):
 
     regions = terradem.outlines.get_sgi_regions(level=level).items()
 
@@ -165,7 +167,8 @@ def subregion_normalized_hypsometric(ddem_filepath: str, output_filepath: str, l
             min_coverage=min_coverage,
             signal=signal,
             glacier_indices_filepath=glacier_indices_filepath,
-            verbose=False
+            verbose=False,
+            idealized_ddem=idealized_ddem,
         )
 
 
