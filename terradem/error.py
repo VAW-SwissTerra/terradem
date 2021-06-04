@@ -6,8 +6,8 @@ import terradem.files
 
 def compare_idealized_interpolation(
     idealized_ddem_path: str = terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp-ideal"],
-    ddem_path: str = terradem.files.TEMP_FILES["ddem_coreg_tcorr"]
-):
+    ddem_path: str = terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+) -> None:
     """
     Compare an "idealized" interpolated dDEM with actual glacier values.
 

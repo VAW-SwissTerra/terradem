@@ -13,9 +13,9 @@ dependencies:
         - opencv
         - git
         - pytest
-        - pip:
-                - pytransform3d
-                - https://github.com/GlacioHack/GeoUtils/tarball/master
-                - https://github.com/GlacioHack/xdem/tarball/main
+        - pytransform3d
+        - geoutils
+        - xdem
 
-
+        # For developing
+        - pre-commit

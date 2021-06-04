@@ -4,10 +4,8 @@ import pandas as pd
 import terradem.files
 
 
-def read_swisstopo_metadata():
-    data = pd.read_csv(terradem.files.INPUT_FILE_PATHS["swisstopo_metadata"]).set_index(
-        "Image file", drop=True
-    )
+def read_swisstopo_metadata() -> pd.DataFrame:
+    data = pd.read_csv(terradem.files.INPUT_FILE_PATHS["swisstopo_metadata"]).set_index("Image file", drop=True)
     data["date"] = pd.to_datetime(data["date"], format="%Y-%m-%d")
 
     return data

@@ -22,9 +22,7 @@ CHECKSUMS = {
     "terra_inputs.tar.gz": "4b9c1d5d4bc43cd0d97a303567ffe981",
 }
 
-BASE_DIRECTORY = os.path.abspath(
-    os.path.join(os.path.join(os.path.dirname(__file__), os.path.pardir))
-)
+BASE_DIRECTORY = os.path.abspath(os.path.join(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 TEMP_DIRECTORY = os.path.join(BASE_DIRECTORY, "temp/")
 
 TEMP_SUBDIRS = {
@@ -49,8 +47,12 @@ TEMP_FILES = {
     "ddem_coreg_tcorr_subregion-interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion-interp.tif"),
     "ddem_coreg_tcorr_subregion0-interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion0-interp.tif"),
     "ddem_coreg_tcorr_interp-ideal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp-ideal.tif"),
-    "ddem_coreg_tcorr_subregion-interp-ideal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion-interp-ideal.tif"),
-    "ddem_coreg_tcorr_subregion0-interp-ideal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion0-interp-ideal.tif"),
+    "ddem_coreg_tcorr_subregion-interp-ideal": os.path.join(
+        TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion-interp-ideal.tif"
+    ),
+    "ddem_coreg_tcorr_subregion0-interp-ideal": os.path.join(
+        TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion0-interp-ideal.tif"
+    ),
     "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
 }
 
@@ -68,31 +70,17 @@ DIRECTORY_PATHS = {
 
 INPUT_FILE_PATHS = {
     "base_dem": os.path.join(DIRECTORY_PATHS["external"], "rasters", "base_dem.tif"),
-    "base_dem_years": os.path.join(
-        DIRECTORY_PATHS["external"], "rasters", "base_dem_years.tif"
-    ),
-    "stable_ground_mask": os.path.join(
-        DIRECTORY_PATHS["results"], "masks", "stable_ground_mask.tif"
-    ),
-    "swisstopo_metadata": os.path.join(
-        DIRECTORY_PATHS["results"], "metadata", "image_meta.csv"
-    ),
-    "massbalance_index": os.path.join(
-        DIRECTORY_PATHS["external"], "mass_balance", "massbalance_index.dat"
-    ),
-    "lk50_outlines": os.path.join(
-        DIRECTORY_PATHS["results"], "outlines", "lk50_outlines.shp"
-    ),
-    "sgi_2016": os.path.join(
-        DIRECTORY_PATHS["external"], "shapefiles", "SGI_2016_glaciers.shp"
-    ),
-    "digitized_outlines": os.path.join(
-        DIRECTORY_PATHS["manual_input"], "digitized_outlines.geojson"
-    ),
+    "base_dem_years": os.path.join(DIRECTORY_PATHS["external"], "rasters", "base_dem_years.tif"),
+    "stable_ground_mask": os.path.join(DIRECTORY_PATHS["results"], "masks", "stable_ground_mask.tif"),
+    "swisstopo_metadata": os.path.join(DIRECTORY_PATHS["results"], "metadata", "image_meta.csv"),
+    "massbalance_index": os.path.join(DIRECTORY_PATHS["external"], "mass_balance", "massbalance_index.dat"),
+    "lk50_outlines": os.path.join(DIRECTORY_PATHS["results"], "outlines", "lk50_outlines.shp"),
+    "sgi_2016": os.path.join(DIRECTORY_PATHS["external"], "shapefiles", "SGI_2016_glaciers.shp"),
+    "digitized_outlines": os.path.join(DIRECTORY_PATHS["manual_input"], "digitized_outlines.geojson"),
 }
 
 
-def _download_file(url: str, output_directory: str):
+def _download_file(url: str, output_directory: str) -> None:
     """
     Download a file from a url and save it in a given directory.
 
@@ -161,7 +149,7 @@ def _get_directory_size(directory: str) -> int:
     return size
 
 
-def get_data(overwrite: bool = False):
+def get_data(overwrite: bool = False) -> None:
     """
     Download the data if necessary.
 
@@ -174,15 +162,11 @@ def get_data(overwrite: bool = False):
     :raises AssertionError: If the hash of a newly downloaded file is invalid.
     """
     for key in DATA_URLS:
-        filepath = os.path.join(
-            DIRECTORY_PATHS["data"], os.path.basename(DATA_URLS[key])
-        )
+        filepath = os.path.join(DIRECTORY_PATHS["data"], os.path.basename(DATA_URLS[key]))
         if overwrite or not _verify_hash(filepath):
             _download_file(DATA_URLS[key], DIRECTORY_PATHS["data"])
             if not _verify_hash(filepath):
-                raise AssertionError(
-                    "Downloaded file hash does not match the expected hash."
-                )
+                raise AssertionError("Downloaded file hash does not match the expected hash.")
 
         if not overwrite and _get_directory_size(DIRECTORY_PATHS[key]) > 1024:
             continue

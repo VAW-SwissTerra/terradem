@@ -5,13 +5,11 @@ import json
 import os
 import warnings
 from numbers import Number
-from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
 import rasterio as rio
 import scipy.ndimage
-import skimage.morphology
 import xdem.spatial_tools
 from tqdm import tqdm
 
@@ -21,7 +19,7 @@ import terradem.metadata
 import terradem.utilities
 
 
-def merge_rasters(directory_or_filepaths: Union[str, list[str]], output_path: str):
+def merge_rasters(directory_or_filepaths: str | list[str], output_path: str) -> None:
     """
     Merge all rasters in a directory using the nanmean of each pixel.
 
@@ -32,9 +30,7 @@ def merge_rasters(directory_or_filepaths: Union[str, list[str]], output_path: st
     """
     if isinstance(directory_or_filepaths, str):
         filepaths = [
-            os.path.join(directory_or_filepaths, fn)
-            for fn in os.listdir(directory_or_filepaths)
-            if fn.endswith(".tif")
+            os.path.join(directory_or_filepaths, fn) for fn in os.listdir(directory_or_filepaths) if fn.endswith(".tif")
         ]
     else:
         filepaths = directory_or_filepaths
@@ -81,9 +77,7 @@ def merge_rasters(directory_or_filepaths: Union[str, list[str]], output_path: st
             continue
 
         # Find the upper left pixel location
-        upper, left = rio.transform.rowcol(
-            transform, intersecting_bounds.left, intersecting_bounds.top
-        )
+        upper, left = rio.transform.rowcol(transform, intersecting_bounds.left, intersecting_bounds.top)
 
         # Read the data from within the intersecting bounds.
         raster_data = raster_ds.read(
@@ -98,9 +92,7 @@ def merge_rasters(directory_or_filepaths: Union[str, list[str]], output_path: st
         ).filled(np.nan)
 
         # Create a slice for the small raster's values into the merged raster.
-        merged_s = np.s_[
-            upper : upper + raster_data.shape[0], left : left + raster_data.shape[1]
-        ]
+        merged_s = np.s_[upper : upper + raster_data.shape[0], left : left + raster_data.shape[1]]
 
         # Make an inlier mask to exclude odd data (and ignore nans in the calculaton)
         finites = np.isfinite(raster_data)
@@ -116,25 +108,23 @@ def merge_rasters(directory_or_filepaths: Union[str, list[str]], output_path: st
         raster_view = merged_raster[merged_s]
 
         # Assign the average of the old and the new values.
-        raster_view[inliers] = np.nanmean(
-            [raster_view[inliers], raster_data[inliers]], axis=0
-        )
+        raster_view[inliers] = np.nanmean([raster_view[inliers], raster_data[inliers]], axis=0)
 
     # Find the most common nodata value, or default to one if no nodata value was provided.
     nodata = np.median(nodata_values) if len(nodata_values) > 0 else -9999
 
-    meta.update(dict(nodata=nodata, compress="DEFLATE", tiled=True))
+    meta.update({"nodata": nodata, "compress": "DEFLATE", "tiled": True})
     # Write the merged raster.
     with rio.open(output_path, mode="w", **meta) as raster:
         raster.write(np.where(np.isfinite(merged_raster), merged_raster, nodata), 1)
 
 
 def generate_ddems(
-    dem_filepaths: Optional[list[str]] = None,
+    dem_filepaths: list[str] | None = None,
     output_directory: str = terradem.files.TEMP_SUBDIRS["ddems_coreg"],
     overwrite: bool = False,
     default_end_year: float = 2018.0,
-):
+) -> None:
     """
     Generate yearly dDEMs to the reference DEM.
 
@@ -172,9 +162,9 @@ def generate_ddems(
 
         dem = dem_ds.read(1, masked=True).filled(np.nan)
         # Read the base DEM within the bounds of the input DEM.
-        base_dem = base_dem_ds.read(
-            1, window=base_dem_ds.window(*dem_ds.bounds), boundless=True, masked=True
-        ).filled(np.nan)
+        base_dem = base_dem_ds.read(1, window=base_dem_ds.window(*dem_ds.bounds), boundless=True, masked=True).filled(
+            np.nan
+        )
         # Read the base DEM years raster (to get the end date)
         base_dem_years = base_dem_years_ds.read(
             1,
@@ -207,22 +197,18 @@ def generate_ddems(
 
         # Generate an output description of the dDEM.
         description = (
-            f"Yearly dDEM ({stereo_pair}). {date.date()} to ~{np.nanmean(base_dem_years):.2f}."
-            f" Average time: {np.nanmean(time_diff):.2f} years."
+            f"Yearly dDEM ({stereo_pair}). {date.date()} to ~{np.nanmean(base_dem_years):.2f}. "
+            f"Average time: {np.nanmean(time_diff):.2f} years."
         )
 
         # Save the dDEM.
-        with rio.open(
-            output_path, "w", compress="deflate", tiled=True, **dem_ds.meta
-        ) as raster:
+        with rio.open(output_path, "w", compress="deflate", tiled=True, **dem_ds.meta) as raster:
             raster.set_band_description(1, description)
             raster.set_band_unit(1, "m")
-            raster.write(
-                np.where(np.isfinite(yearly_ddem), yearly_ddem, dem_ds.nodata), 1
-            )
+            raster.write(np.where(np.isfinite(yearly_ddem), yearly_ddem, dem_ds.nodata), 1)
 
 
-def get_ddem_statistics():
+def get_ddem_statistics() -> None:
     """
     Calculate statistics for each dDEM in the coreg and noncoreg directories.
 
@@ -236,15 +222,11 @@ def get_ddem_statistics():
     # Read the filepaths of each stereo pair in stereo_pair:filepath key-value pairs.
     coregistered_ddem_paths = {
         terradem.utilities.station_from_filepath(fp): fp
-        for fp in terradem.utilities.list_files(
-            terradem.files.TEMP_SUBDIRS["ddems_coreg"], r".*\.tif"
-        )
+        for fp in terradem.utilities.list_files(terradem.files.TEMP_SUBDIRS["ddems_coreg"], r".*\.tif")
     }
     original_ddem_paths = {
         terradem.utilities.station_from_filepath(fp): fp
-        for fp in terradem.utilities.list_files(
-            terradem.files.TEMP_SUBDIRS["ddems_non_coreg"], r".*\.tif"
-        )
+        for fp in terradem.utilities.list_files(terradem.files.TEMP_SUBDIRS["ddems_non_coreg"], r".*\.tif")
     }
 
     # Open the stable ground mask to differentiate between glacial and stable surfaces.
@@ -255,29 +237,19 @@ def get_ddem_statistics():
     # [station (stereo_pair), product (coreg/noncoreg), surface (stable/glacial)] pairs.
     # This is made first to make sure all dDEMs (coregistered or not) get statistics.
     stat_indices = []
-    for station in np.unique(
-        np.r_[list(coregistered_ddem_paths.keys()), list(original_ddem_paths.keys())]
-    ):
+    for station in np.unique(np.r_[list(coregistered_ddem_paths.keys()), list(original_ddem_paths.keys())]):
         for product in ["coreg", "noncoreg"]:
             for surface in ["stable", "glacial"]:
                 stat_indices.append((station, product, surface))
 
     # Create the (so far) empty statistics output file.
-    stats = pd.DataFrame(
-        index=pd.MultiIndex.from_tuples(
-            stat_indices, names=["station", "product", "surface"]
-        )
-    )
+    stats = pd.DataFrame(index=pd.MultiIndex.from_tuples(stat_indices, names=["station", "product", "surface"]))
 
-    for station in tqdm(
-        coregistered_ddem_paths, desc="Calculating dDEM statistics.", smoothing=0
-    ):
+    for station in tqdm(coregistered_ddem_paths, desc="Calculating dDEM statistics.", smoothing=0):
         if original_ddem_paths.get(station) is None:
             continue
 
-        for abbrev, filepaths in zip(
-            ["coreg", "noncoreg"], [coregistered_ddem_paths, original_ddem_paths]
-        ):
+        for abbrev, filepaths in zip(["coreg", "noncoreg"], [coregistered_ddem_paths, original_ddem_paths]):
 
             filepath = filepaths.get(station)
             if filepath is None:
@@ -306,9 +278,7 @@ def get_ddem_statistics():
             )
 
             # Loop over stable and glacial values.
-            for surface, values in zip(
-                ["stable", "glacial"], [ddem[stable_ground], ddem[glacier_mask]]
-            ):
+            for surface, values in zip(["stable", "glacial"], [ddem[stable_ground], ddem[glacier_mask]]):
                 index = (station, abbrev, surface)
 
                 with warnings.catch_warnings():
@@ -324,7 +294,7 @@ def get_ddem_statistics():
     stats.to_csv(terradem.files.TEMP_FILES["ddem_stats"])
 
 
-def filter_ddems():
+def filter_ddems() -> list[str]:
     """
     This function should be moved somewhere else.
     """
@@ -336,11 +306,7 @@ def filter_ddems():
     for station_name in stats.index.unique("station"):
         station_data = stats.loc[station_name]
 
-        good_product = (
-            "coreg"
-            if station_data.loc[pd.IndexSlice["coreg", "stable"], "count"] > (1000)
-            else "noncoreg"
-        )
+        good_product = "coreg" if station_data.loc[pd.IndexSlice["coreg", "stable"], "count"] > (1000) else "noncoreg"
 
         if good_product != "coreg":
             continue
@@ -358,9 +324,7 @@ def filter_ddems():
         products_to_use[station_name] = good_product
 
         ddem_path = os.path.join(
-            terradem.files.TEMP_SUBDIRS[
-                "ddems_coreg" if good_product == "coreg" else "ddems_non_coreg"
-            ],
+            terradem.files.TEMP_SUBDIRS["ddems_coreg" if good_product == "coreg" else "ddems_non_coreg"],
             f"{station_name}_ddem.tif",
         )
         ddem_paths.append(ddem_path)
@@ -368,9 +332,7 @@ def filter_ddems():
     return ddem_paths
 
 
-def gaussian_nan_filter(
-    array: np.ndarray, sigma: float = 2.0, truncate: float = 4.0
-) -> np.ndarray:
+def gaussian_nan_filter(array: np.ndarray, sigma: float = 2.0, truncate: float = 4.0) -> np.ndarray:
     """
     Taken from: https://stackoverflow.com/a/36307291
     """
@@ -392,9 +354,7 @@ def gaussian_nan_filter(
     return Z
 
 
-def ddem_minmax_filter(
-    ddem: np.ndarray, radius: float = 100.0, outlier_threshold: float = 2.0
-) -> np.ndarray:
+def ddem_minmax_filter(ddem: np.ndarray, radius: float = 100.0, outlier_threshold: float = 2.0) -> np.ndarray:
 
     blurred = gaussian_nan_filter(ddem, sigma=20)
 
@@ -410,31 +370,25 @@ def filter_raster(
     output_path: str,
     radius: float = 100.0,
     outlier_threshold: float = 2.0,
-):
+) -> None:
 
     with rio.open(input_path) as raster:
         data = raster.read(1, masked=True).filled(np.nan)
         meta = raster.meta
 
-    filtered_data = ddem_minmax_filter(
-        data, radius=radius, outlier_threshold=outlier_threshold
-    )
+    filtered_data = ddem_minmax_filter(data, radius=radius, outlier_threshold=outlier_threshold)
 
-    meta.update(dict(compress="deflate"))
+    meta.update({"compress": "deflate"})
     with rio.open(output_path, "w", **meta) as raster:
-        raster.write(
-            np.where(np.isfinite(filtered_data), filtered_data, meta["nodata"]), 1
-        )
+        raster.write(np.where(np.isfinite(filtered_data), filtered_data, meta["nodata"]), 1)
 
 
 def filter_all_ddems(
     input_directory: str = terradem.files.TEMP_SUBDIRS["ddems_coreg"],
     output_directory: str = terradem.files.TEMP_SUBDIRS["ddems_coreg_filtered"],
-):
+) -> None:
 
-    for filepath in tqdm(
-        terradem.utilities.list_files(input_directory, r".*\.tif"), smoothing=0
-    ):
+    for filepath in tqdm(terradem.utilities.list_files(input_directory, r".*\.tif"), smoothing=0):
         new_filepath = os.path.join(output_directory, os.path.basename(filepath))
 
         filter_raster(filepath, new_filepath)
@@ -446,7 +400,7 @@ def ddem_temporal_correction(
     output_meta_dir: str = terradem.files.TEMP_SUBDIRS["tcorr_meta_coreg"],
     overwrite: bool = False,
     default_end_year: float = 2018.0,
-):
+) -> None:
     """
     Temporally correct the dDEMs using a representative mass balance series.
 
@@ -503,34 +457,23 @@ def ddem_temporal_correction(
         # Check if the base_dem_years covers the dDEM (or if all are nans)
         exact_end_year = np.count_nonzero(np.isfinite(base_dem_years)) > 0
         # If there is coverage, take the mean year, and if not, take the default year.
-        mean_end_year = (
-            np.nanmean(base_dem_years) if exact_end_year else default_end_year
-        )
+        mean_end_year = np.nanmean(base_dem_years) if exact_end_year else default_end_year
 
         # Read the glacier mask
         glacier_mask = (
-            glacier_mask_ds.read(
-                1, window=glacier_mask_ds.window(*bounds), boundless=True, masked=True
-            ).filled(0)
-            != 0
+            glacier_mask_ds.read(1, window=glacier_mask_ds.window(*bounds), boundless=True, masked=True).filled(0) != 0
         )
 
         # Take the centre of the raster as an approximation of its centroid.
         easting = np.mean([bounds.right, bounds.left])
         northing = np.mean([bounds.top, bounds.bottom])
         # Find the associated correction factor and mass balance zone at the "centroid"
-        factor, zone = get_mb_factor(
-            easting, northing, start_dates[station].year, mean_end_year
-        )
+        factor, zone = get_mb_factor(easting, northing, start_dates[station].year, mean_end_year)
 
         # Multiply the glacier values by the factor to standardize the years.
         ddem[glacier_mask] *= factor
 
-        meta.update(
-            dict(
-                compress="deflate",
-            )
-        )
+        meta.update({"compress": "deflate"})
         # Write the corrected dDEM
         with rio.open(new_filepath, "w", **meta) as raster:
             raster.write(np.where(np.isfinite(ddem), ddem, meta["nodata"]), 1)

@@ -1,9 +1,7 @@
 """Plotting functions for different steps in the processing."""
 import os
 
-import geopandas as gpd
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
 import terradem.files
@@ -11,13 +9,11 @@ import terradem.outlines
 import terradem.utilities
 
 
-def plot_hypsometric_signals(level=1):
+def plot_hypsometric_signals(level: int = 1) -> None:
     """Plot the normalized hypsometric signals."""
 
     files = []
-    for filepath in terradem.utilities.list_files(
-        terradem.files.TEMP_SUBDIRS["hypsometric_signals"], r".*\.csv"
-    ):
+    for filepath in terradem.utilities.list_files(terradem.files.TEMP_SUBDIRS["hypsometric_signals"], r".*\.csv"):
         region = os.path.basename(filepath).split("_")[1]
 
         if len(region) != (level + 1):
@@ -38,11 +34,7 @@ def plot_hypsometric_signals(level=1):
         signal = pd.read_csv(filepath)
 
         signal.index = pd.IntervalIndex.from_tuples(
-            signal.iloc[:, 0].apply(
-                lambda s: tuple(
-                    map(float, s.replace("(", "").replace("]", "").split(","))
-                )
-            )
+            signal.iloc[:, 0].apply(lambda s: tuple(map(float, s.replace("(", "").replace("]", "").split(","))))
         )
 
         signal.drop(columns=signal.columns[0], inplace=True)

@@ -5,17 +5,23 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import rasterio as rio
+import xdem
 from tqdm import tqdm
 
 import terradem.files
 import terradem.outlines
-import xdem
 
 
-def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, output_signal_filepath: str,
-                                    min_coverage: float = 0.1, signal: Optional[pd.DataFrame] = None,
-                                    glacier_indices_filepath: str = terradem.files.TEMP_FILES["lk50_rasterized"],
-                                    idealized_ddem: bool = False, verbose: bool = True):
+def normalized_regional_hypsometric(
+    ddem_filepath: str,
+    output_filepath: str,
+    output_signal_filepath: str,
+    min_coverage: float = 0.1,
+    signal: Optional[pd.DataFrame] = None,
+    glacier_indices_filepath: str = terradem.files.TEMP_FILES["lk50_rasterized"],
+    idealized_ddem: bool = False,
+    verbose: bool = True,
+) -> None:
     """
     Interpolate gaps in a dDEM using normalized regional hypsometric interpolation.
 
@@ -28,17 +34,13 @@ def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, ou
     ref_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
     ddem_ds = rio.open(ddem_filepath)
 
-    bounds = rio.coords.BoundingBox(
-        left=626790, top=176570, right=644890, bottom=135150
-    )
+    bounds = rio.coords.BoundingBox(left=626790, top=176570, right=644890, bottom=135150)
     bounds = ddem_ds.bounds  # Remove this to validate on a testing subset.
 
     if verbose:
         print("Reading data")
     ddem = ddem_ds.read(1, masked=True, window=ddem_ds.window(*bounds)).filled(np.nan)
-    ref_dem = ref_dem_ds.read(1, masked=True, window=ref_dem_ds.window(*bounds)).filled(
-        1000
-    )
+    ref_dem = ref_dem_ds.read(1, masked=True, window=ref_dem_ds.window(*bounds)).filled(1000)
     glacier_indices = glacier_indices_ds.read(
         1,
         masked=True,
@@ -49,10 +51,7 @@ def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, ou
         if verbose:
             print("Extracting signal")
         signal = xdem.volume.get_regional_hypsometric_signal(
-            ddem=ddem,
-            ref_dem=ref_dem,
-            glacier_index_map=glacier_indices,
-            verbose=verbose
+            ddem=ddem, ref_dem=ref_dem, glacier_index_map=glacier_indices, verbose=verbose
         )
         signal.to_csv(output_signal_filepath)
 
@@ -63,20 +62,18 @@ def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, ou
         regional_signal=signal,
         min_coverage=min_coverage,
         idealized_ddem=idealized_ddem,
-        verbose=verbose
+        verbose=verbose,
     )
 
     meta = ddem_ds.meta
     meta.update(
-        dict(
-            compress="deflate",
-            tiled=True,
-            height=ddem.shape[0],
-            width=ddem.shape[1],
-            transform=rio.transform.from_bounds(
-                *bounds, width=ddem.shape[1], height=ddem.shape[0]
-            ),
-        )
+        {
+            "compress": "deflate",
+            "tiled": True,
+            "height": ddem.shape[0],
+            "width": ddem.shape[1],
+            "transform": rio.transform.from_bounds(*bounds, width=ddem.shape[1], height=ddem.shape[0]),
+        }
     )
     with rio.open(output_filepath, "w", **meta) as raster:
         raster.write(
@@ -85,7 +82,7 @@ def normalized_regional_hypsometric(ddem_filepath: str, output_filepath: str, ou
         )
 
 
-def get_regional_signals(level: int = 1):
+def get_regional_signals(level: int = 1) -> None:
     """
     Get the regional signals of all SGI regions.
 
@@ -103,9 +100,7 @@ def get_regional_signals(level: int = 1):
     for region in tqdm(terradem.outlines.get_sgi_regions(level=level)):
 
         glacier_indices_ds = rio.open(
-            os.path.join(
-                terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif"
-            )
+            os.path.join(terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif")
         )
 
         glacier_indices = glacier_indices_ds.read(1)
@@ -128,25 +123,29 @@ def read_hypsometric_signal(filepath: str) -> pd.DataFrame:
     Basically just pd.read_csv with some tweaks.
     """
     signal = pd.read_csv(filepath)
-    signal.index = pd.IntervalIndex.from_tuples(signal.iloc[:, 0].apply(
-        lambda s: tuple(map(float, s.replace("(", "").replace("]", "").split(",")))))
+    signal.index = pd.IntervalIndex.from_tuples(
+        signal.iloc[:, 0].apply(lambda s: tuple(map(float, s.replace("(", "").replace("]", "").split(","))))
+    )
 
     signal.drop(columns=signal.columns[0], inplace=True)
 
     return signal
 
 
-def subregion_normalized_hypsometric(ddem_filepath: str, output_filepath: str, level: int = 1, min_coverage: float = 0.1, idealized_ddem: bool = False):
+def subregion_normalized_hypsometric(
+    ddem_filepath: str, output_filepath: str, level: int = 1, min_coverage: float = 0.1, idealized_ddem: bool = False
+) -> None:
 
     regions = terradem.outlines.get_sgi_regions(level=level).items()
 
-    for i, (region, outlines) in tqdm(enumerate(regions), total=len(regions), desc=f"Running norm. hypso. on region sublevel {level}"):
+    for i, (region, outlines) in tqdm(
+        enumerate(regions), total=len(regions), desc=f"Running norm. hypso. on region sublevel {level}"
+    ):
 
         # Read the already produced hypsometric signal
-        signal = read_hypsometric_signal(os.path.join(
-            terradem.files.TEMP_SUBDIRS["hypsometric_signals"],
-            f"SGI_{region}_normalized.csv"
-        ))
+        signal = read_hypsometric_signal(
+            os.path.join(terradem.files.TEMP_SUBDIRS["hypsometric_signals"], f"SGI_{region}_normalized.csv")
+        )
 
         total_area = outlines.geometry.area.sum()
         covered_area = signal["count"].sum() * (5 ** 2)
@@ -154,8 +153,7 @@ def subregion_normalized_hypsometric(ddem_filepath: str, output_filepath: str, l
             continue
 
         glacier_indices_filepath = os.path.join(
-            terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"],
-            f"SGI_{region}.tif"
+            terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif"
         )
 
         input_filepath = ddem_filepath if i == 0 else output_filepath
@@ -172,5 +170,5 @@ def subregion_normalized_hypsometric(ddem_filepath: str, output_filepath: str, l
         )
 
 
-def regional_hypsometric(ddem_filepath: str, output_filepath: str):
+def regional_hypsometric(ddem_filepath: str, output_filepath: str) -> None:
     pass

@@ -1,11 +1,12 @@
 """Tools to calculate mass balance and convert appropriately from volume."""
+from __future__ import annotations
 
+from typing import Callable
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio as rio
-import shapely
 from tqdm import tqdm
 
 import terradem.dem_tools
@@ -13,7 +14,7 @@ import terradem.files
 import terradem.metadata
 
 
-def read_mb_index():
+def read_mb_index() -> pd.DataFrame:
 
     data = pd.read_csv(
         terradem.files.INPUT_FILE_PATHS["massbalance_index"],
@@ -26,7 +27,7 @@ def read_mb_index():
     return data
 
 
-def match_zones():
+def match_zones() -> Callable[[float, float, float, float], tuple[float, str]]:
     standard_start_year = 1930
     standard_end_year = 2020
     mb = read_mb_index().cumsum()
@@ -51,18 +52,14 @@ def match_zones():
 
     # Zone A55 is not covered by the zones, so hardcode this to be A54 instead.
     lk50_outlines.loc[
-        (lk50_outlines["RivLevel0"] == "A")
-        & (lk50_outlines["RivLevel1"] == "5")
-        & (lk50_outlines["RivLevel2"] == "5"),
+        (lk50_outlines["RivLevel0"] == "A") & (lk50_outlines["RivLevel1"] == "5") & (lk50_outlines["RivLevel2"] == "5"),
         "zone",
     ] = "A54"
 
     lk50_outlines["easting"] = lk50_outlines.geometry.centroid.x
     lk50_outlines["northing"] = lk50_outlines.geometry.centroid.y
 
-    def get_mb_factor(
-        easting: float, northing: float, start_year: float, end_year: float
-    ) -> tuple[float, str]:
+    def get_mb_factor(easting: float, northing: float, start_year: float, end_year: float) -> tuple[float, str]:
 
         # Calculate the distance between the point and each lk50_outline centroid
         distance = np.linalg.norm(
@@ -87,7 +84,7 @@ def match_zones():
     return get_mb_factor
 
 
-def get_volume_change():
+def get_volume_change() -> None:
 
     glacier_indices_ds = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"])
 
@@ -95,11 +92,12 @@ def get_volume_change():
         "non_interp": terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
         "norm-regional": terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp"],
         "norm-regional-sgi1-subregion": terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion-interp"],
-        "norm-regional-sgi0-subregion": terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp"]
+        "norm-regional-sgi0-subregion": terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp"],
     }
 
-    output = pd.DataFrame(index=ddem_versions.keys(), columns=[
-                          "mean", "median", "std", "area", "volume_change", "coverage"])
+    output = pd.DataFrame(
+        index=ddem_versions.keys(), columns=["mean", "median", "std", "area", "volume_change", "coverage"]
+    )
 
     print("Reading glacier mask")
     glacier_mask = glacier_indices_ds.read(1, masked=True).filled(0) > 0
@@ -115,7 +113,7 @@ def get_volume_change():
             "std": np.nanstd(ddem_values),
             "area": total_area,
             "volume_change": np.nanmean(ddem_values) * total_area,
-            "coverage": np.count_nonzero(np.isfinite(ddem_values)) / np.count_nonzero(glacier_mask)
+            "coverage": np.count_nonzero(np.isfinite(ddem_values)) / np.count_nonzero(glacier_mask),
         }
 
     print(output)

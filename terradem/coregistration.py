@@ -8,11 +8,8 @@ import random
 import threading
 import warnings
 from contextlib import contextmanager
-from typing import Optional, Union
 
 import cv2
-import geopandas as gpd
-import geoutils as gu
 import matplotlib.pyplot as plt
 import numpy as np
 import rasterio as rio
@@ -28,15 +25,13 @@ import terradem.files
 
 
 def apply_matrix(
-    raster: Union[np.ndarray, np.ma.masked_array],
+    raster: np.ndarray | np.ma.masked_array,
     transform: rio.warp.Affine,
     matrix: np.ndarray,
-    centroid: Optional[tuple[float, float, float]] = None,
+    centroid: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
 
-    mask = (~np.isfinite(raster)) | (
-        raster.mask if isinstance(raster, np.ma.masked_array) else False
-    )
+    mask = (~np.isfinite(raster)) | (raster.mask if isinstance(raster, np.ma.masked_array) else False)
     raster_arr = np.array(raster)
     raster_arr[mask] = np.nan
 
@@ -46,9 +41,7 @@ def apply_matrix(
     height_mask = mask.reshape(raster_arr.shape)[0, :, :]
 
     x_coords, y_coords = xdem.coreg._get_x_and_y_coords(raster_arr.shape[1:], transform)
-    bounds, resolution = xdem.coreg._transform_to_bounds_and_res(
-        raster_arr.shape[1:], transform
-    )
+    bounds, resolution = xdem.coreg._transform_to_bounds_and_res(raster_arr.shape[1:], transform)
 
     if centroid is None:
         centroid = (x_coords.mean(), y_coords.mean(), 0)
@@ -68,9 +61,7 @@ def apply_matrix(
         )
     ).T[~height_mask.ravel()]
 
-    transformed_cloud = cv2.perspectiveTransform(
-        point_cloud[np.newaxis, :, :3], matrix
-    ).squeeze()
+    transformed_cloud = cv2.perspectiveTransform(point_cloud[np.newaxis, :, :3], matrix).squeeze()
 
     if point_cloud.shape[1] > 3:
         transformed_cloud = np.vstack((transformed_cloud.T, point_cloud[:, 3:].T)).T
@@ -105,16 +96,12 @@ def apply_matrix(
 
 
 def make_pipeline() -> xdem.coreg.CoregPipeline:
-    def new_apply_func(
-        self: xdem.coreg.Coreg, dem: np.ndarray, transform: rio.warp.Affine
-    ):
+    def new_apply_func(self: xdem.coreg.Coreg, dem: np.ndarray, transform: rio.warp.Affine) -> np.ndarray:
 
         matrix = self.to_matrix()
         centroid = self._meta.get("centroid")
 
-        return apply_matrix(
-            raster=dem, transform=transform, matrix=matrix, centroid=centroid
-        )
+        return apply_matrix(raster=dem, transform=transform, matrix=matrix, centroid=centroid)
 
     biascorr = xdem.coreg.BiasCorr
     icp = xdem.coreg.ICP
@@ -130,9 +117,7 @@ def make_pipeline() -> xdem.coreg.CoregPipeline:
     return pipeline
 
 
-def run_coregistration(
-    reference_dem: np.ndarray, dem: np.ndarray, transform: rio.warp.Affine
-):
+def run_coregistration(reference_dem: np.ndarray, dem: np.ndarray, transform: rio.warp.Affine) -> None:
 
     bias = np.nanmedian(reference_dem - dem)
 
@@ -152,12 +137,10 @@ def run_coregistration(
     x_coords -= centroid[0]
     y_coords -= centroid[1]
 
-    ref_pc = np.dstack(
-        (x_coords.ravel(), y_coords.ravel(), reference_dem.ravel())
-    ).squeeze()[np.isfinite(reference_dem).ravel()]
-    tba_pc = np.dstack((x_coords.ravel(), y_coords.ravel(), dem.ravel())).squeeze()[
-        np.isfinite(dem).ravel()
+    ref_pc = np.dstack((x_coords.ravel(), y_coords.ravel(), reference_dem.ravel())).squeeze()[
+        np.isfinite(reference_dem).ravel()
     ]
+    tba_pc = np.dstack((x_coords.ravel(), y_coords.ravel(), dem.ravel())).squeeze()[np.isfinite(dem).ravel()]
 
     print(ref_pc.shape)
 
@@ -167,8 +150,8 @@ def run_coregistration(
 
 def coregister_dem(
     filepath: str,
-    base_dem_lock: Optional[threading.Lock] = None,
-    stable_ground_lock: Optional[threading.Lock] = None,
+    base_dem_lock: threading.Lock | None = None,
+    stable_ground_lock: threading.Lock | None = None,
     pixel_buffer: int = 10,
     plot: bool = False,
 ) -> bool:
@@ -203,25 +186,17 @@ def coregister_dem(
         width=dem_ds.width + pixel_buffer,
     )
 
-    big_transform = rio.transform.from_origin(
-        buffered_left, buffered_top, resolution, resolution
-    )
+    big_transform = rio.transform.from_origin(buffered_left, buffered_top, resolution, resolution)
 
     # Read the DEM to be coregistered.
-    dem = dem_ds.read(1, masked=True, window=small_window, boundless=True).filled(
-        np.nan
-    )
+    dem = dem_ds.read(1, masked=True, window=small_window, boundless=True).filled(np.nan)
 
     # Read the base DEM with a threading lock (if given, otherwise make an empty context)
     with (base_dem_lock or contextmanager(lambda: iter([None]))()):
-        base_dem = base_dem_ds.read(
-            1, window=large_window, masked=True, boundless=True
-        ).filled(np.nan)
+        base_dem = base_dem_ds.read(1, window=large_window, masked=True, boundless=True).filled(np.nan)
     # Read the stable ground mask with a threading lock (if given, otherwise make an empty context)
     with (stable_ground_lock or contextmanager(lambda: iter([None]))()):
-        stable_ground = stable_ground_ds.read(
-            1, window=large_window, boundless=True, fill_value=0
-        ).astype(bool)
+        stable_ground = stable_ground_ds.read(1, window=large_window, boundless=True, fill_value=0).astype(bool)
 
     # Make sure they ended up in the same shape.
     assert dem.shape == base_dem.shape == stable_ground.shape
@@ -231,9 +206,7 @@ def coregister_dem(
         np.count_nonzero(
             np.logical_and(
                 *[
-                    scipy.ndimage.maximum_filter(
-                        mask, size=pixel_buffer, mode="constant"
-                    )
+                    scipy.ndimage.maximum_filter(mask, size=pixel_buffer, mode="constant")
                     for mask in (
                         np.isfinite(dem) & stable_ground,
                         np.isfinite(base_dem) & stable_ground,
@@ -274,17 +247,13 @@ def coregister_dem(
 
     # Extract the matrix.
     matrix = pipeline.to_matrix()
-    centroid = pipeline.pipeline[1]._meta[
-        "centroid"
-    ]  # pylint: disable=protected-access
+    centroid = pipeline.pipeline[1]._meta["centroid"]  # pylint: disable=protected-access
 
     # If the total displacement is larger than 2000m, something is probably wrong.
     if np.linalg.norm(matrix[[0, 1, 2], 3]) > 2000:
         return False
 
-    dem_coreg = apply_matrix(
-        dem, transform=big_transform, matrix=matrix, centroid=centroid
-    )
+    dem_coreg = apply_matrix(dem, transform=big_transform, matrix=matrix, centroid=centroid)
 
     if False:
         ddem_pre = np.where(stable_ground, base_dem - dem, np.nan)
@@ -302,24 +271,20 @@ def coregister_dem(
 
         plt.show()
 
-    meta = dem_ds.meta
-    meta.update(dict(transform=big_transform))
-    meta = dict(
-        width=dem_coreg.shape[1],
-        height=dem_coreg.shape[0],
-        transform=big_transform,
-        count=1,
-        nodata=dem_ds.nodata,
-        crs=dem_ds.crs,
-        dtype=dem.dtype,
-        compress="deflate",
-    )
+    meta = {
+        "width": dem_coreg.shape[1],
+        "height": dem_coreg.shape[0],
+        "transform": big_transform,
+        "count": 1,
+        "nodata": dem_ds.nodata,
+        "crs": dem_ds.crs,
+        "dtype": dem.dtype,
+        "compress": "deflate",
+    }
 
     # Write the coregistered DEM.
     with rio.open(
-        os.path.join(
-            terradem.files.TEMP_SUBDIRS["dems_coreg"], os.path.basename(filepath)
-        ),
+        os.path.join(terradem.files.TEMP_SUBDIRS["dems_coreg"], os.path.basename(filepath)),
         mode="w",
         **meta,
     ) as raster:
@@ -345,9 +310,7 @@ def coregister_dem(
     return True
 
 
-def coregister_all_dems(
-    overwrite: bool = False, n_threads=1, subset: Optional[int] = None
-):
+def coregister_all_dems(overwrite: bool = False, n_threads: int = 1, subset: int | None = None) -> None:
     """
     Coregister all DEMs in the data/results/dems/ directory.
 
@@ -365,16 +328,14 @@ def coregister_all_dems(
         existing = os.listdir(terradem.files.TEMP_SUBDIRS["dems_coreg"])
         filenames = [fp for fp in filenames if fp not in existing]
 
-    filepaths = [
-        os.path.join(terradem.files.DIRECTORY_PATHS["dems"], fp) for fp in filenames
-    ]
+    filepaths = [os.path.join(terradem.files.DIRECTORY_PATHS["dems"], fp) for fp in filenames]
     if subset is not None:
         random.shuffle(filepaths)
         filepaths = filepaths[:subset]
 
     progress_bar = tqdm(total=len(filepaths), desc="Coregistering DEMs", smoothing=0)
 
-    def coregister(filepath):
+    def coregister(filepath: str) -> None:
         """Coregister the DEM in one thread."""
         with warnings.catch_warnings():
             # There should be no warnings, so if there is one, raise an error.
@@ -409,16 +370,10 @@ def transform_orthomosaic(transform_path: str, overwrite: bool = False) -> bool:
     """
     station_name = os.path.basename(transform_path).replace("_dense_DEM.json", "")
 
-    ortho_path = os.path.join(
-        terradem.files.DIRECTORY_PATHS["orthos"], f"{station_name}_orthomosaic.tif"
-    )
-    dem_path = os.path.join(
-        terradem.files.DIRECTORY_PATHS["dems"], f"{station_name}_dense_DEM.tif"
-    )
+    ortho_path = os.path.join(terradem.files.DIRECTORY_PATHS["orthos"], f"{station_name}_orthomosaic.tif")
+    dem_path = os.path.join(terradem.files.DIRECTORY_PATHS["dems"], f"{station_name}_dense_DEM.tif")
 
-    output_path = os.path.join(
-        terradem.files.TEMP_SUBDIRS["orthos_coreg"], os.path.basename(ortho_path)
-    )
+    output_path = os.path.join(terradem.files.TEMP_SUBDIRS["orthos_coreg"], os.path.basename(ortho_path))
 
     if not overwrite and os.path.isfile(output_path):
         return False
@@ -451,26 +406,18 @@ def transform_orthomosaic(transform_path: str, overwrite: bool = False) -> bool:
     # ortho = gu.Raster(ortho_path)
     # dem = gu.Raster(dem_path).reproject(ortho)
 
-    point_cloud = np.dstack(
-        xdem.coreg._get_x_and_y_coords(dem.shape, ortho_ds.transform) + (dem,)
-    ).reshape((-1, 3))
+    point_cloud = np.dstack(xdem.coreg._get_x_and_y_coords(dem.shape, ortho_ds.transform) + (dem,)).reshape((-1, 3))
     outlier_mask = ~np.isfinite(point_cloud[:, 2])
     point_cloud[outlier_mask, 2] = np.nanmedian(point_cloud[:, 2])
 
     point_cloud -= transform["centroid"].T
 
-    transformed_cloud = cv2.perspectiveTransform(
-        point_cloud.reshape((1, -1, 3)), transform["matrix"]
-    ).reshape((-1, 3))
+    transformed_cloud = cv2.perspectiveTransform(point_cloud.reshape((1, -1, 3)), transform["matrix"]).reshape((-1, 3))
 
-    difference = ((transformed_cloud[:, :2] - point_cloud[:, :2]) / ortho_ds.res)[
-        :, ::-1
-    ]
+    difference = ((transformed_cloud[:, :2] - point_cloud[:, :2]) / ortho_ds.res)[:, ::-1]
     difference[:, 0] *= -1
 
-    pixel_coordinates = np.mgrid[
-        0 : dem.shape[0], 0 : dem.shape[1]
-    ] - difference.T.reshape((2,) + dem.shape)
+    pixel_coordinates = np.mgrid[0 : dem.shape[0], 0 : dem.shape[1]] - difference.T.reshape((2,) + dem.shape)
 
     new_ortho_arr = skimage.transform.warp(
         image=ortho, inverse_map=pixel_coordinates, preserve_range=True, order=1
@@ -484,16 +431,14 @@ def transform_orthomosaic(transform_path: str, overwrite: bool = False) -> bool:
     ).astype(bool)
 
     meta = ortho_ds.meta
-    meta.update(dict(nodata=0, count=1, compress="lzw"))
+    meta.update({"nodata": 0, "count": 1, "compress": "lzw"})
 
     with rio.open(output_path, "w", **meta) as raster:
         raster.write(np.where(new_mask, 0, new_ortho_arr), 1)
 
-    return
+    return True
 
-    data = np.vstack(
-        (dem.data.filled(np.nan), ortho.data[:1, :, :].astype("float32").filled(np.nan))
-    )
+    data = np.vstack((dem.data.filled(np.nan), ortho.data[:1, :, :].astype("float32").filled(np.nan)))
 
     transformed_data = apply_matrix(
         data,
@@ -517,7 +462,7 @@ def transform_orthomosaic(transform_path: str, overwrite: bool = False) -> bool:
     return True
 
 
-def transform_all_orthomosaics(overwrite: bool = False, n_threads: int = 1):
+def transform_all_orthomosaics(overwrite: bool = False, n_threads: int = 1) -> None:
 
     transforms = [
         os.path.join(terradem.files.TEMP_SUBDIRS["coreg_matrices"], fn)
@@ -534,13 +479,10 @@ def transform_all_orthomosaics(overwrite: bool = False, n_threads: int = 1):
         transforms = [
             path
             for path in transforms
-            if os.path.basename(path).replace("_dense_DEM.json", "")
-            not in finished_stations
+            if os.path.basename(path).replace("_dense_DEM.json", "") not in finished_stations
         ]
 
-    progress_bar = tqdm(
-        total=len(transforms), desc="Transforming orthomosaics", smoothing=0
-    )
+    progress_bar = tqdm(total=len(transforms), desc="Transforming orthomosaics", smoothing=0)
 
     # If only one thread should be used, loop in a normal python loop (easier to debug)
     if n_threads == 1:
@@ -550,7 +492,7 @@ def transform_all_orthomosaics(overwrite: bool = False, n_threads: int = 1):
     # Otherwise, deploy multiple asynchronous threads.
     else:
 
-        def transform_ortho(transform_path):
+        def transform_ortho(transform_path: str) -> None:
             transform_orthomosaic(transform_path, overwrite=overwrite)
             progress_bar.update()
 
