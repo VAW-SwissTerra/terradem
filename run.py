@@ -61,14 +61,33 @@ def main() -> None:
     )
     """
 
+    terradem.dem_tools.generate_terrain_attribute(
+        input_path=terradem.files.INPUT_FILE_PATHS["base_dem"],
+        output_path=terradem.files.TEMP_FILES["base_dem_slope"],
+        attribute="slope",
+    )
+
+    terradem.dem_tools.generate_terrain_attribute(
+        input_path=terradem.files.INPUT_FILE_PATHS["base_dem"],
+        output_path=terradem.files.TEMP_FILES["base_dem_aspect"],
+        attribute="aspect",
+    )
+    terradem.dem_tools.generate_terrain_attribute(
+        input_path=terradem.files.INPUT_FILE_PATHS["base_dem"],
+        output_path=terradem.files.TEMP_FILES["base_dem_curvature"],
+        attribute="curvature",
+    )
+
+    """
     print("Generating idealized dDEMs")
     terradem.interpolation.normalized_regional_hypsometric(
-        terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-        terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp"],
-        terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"],
+        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp-ideal"],
+        output_signal_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"],
         signal=terradem.interpolation.read_hypsometric_signal(
             terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"]
         ),
+        idealized_ddem=True
     )
     terradem.interpolation.subregion_normalized_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
@@ -84,6 +103,7 @@ def main() -> None:
         min_coverage=0.1,
         idealized_ddem=True,
     )
+    """
 
     # terradem.massbalance.get_volume_change()
 

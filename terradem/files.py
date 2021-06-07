@@ -36,24 +36,33 @@ TEMP_SUBDIRS = {
     "tcorr_meta_coreg": os.path.join(TEMP_DIRECTORY, "tcorr_meta_coreg/"),
     "rasterized_sgi_zones": os.path.join(TEMP_DIRECTORY, "rasterized_sgi_zones"),
     "hypsometric_signals": os.path.join(TEMP_DIRECTORY, "hypsometric_signals"),
+    "base_dem": os.path.join(TEMP_DIRECTORY, "base_dem"),
+    "merged_ddems": os.path.join(TEMP_DIRECTORY, "merged_ddems"),
 }
 TEMP_FILES = {
     "ddem_stats": os.path.join(TEMP_DIRECTORY, "ddem_stats.csv"),
-    "ddem_coreg": os.path.join(TEMP_DIRECTORY, "ddem_coreg.tif"),
-    "ddem_coreg_filtered": os.path.join(TEMP_DIRECTORY, "ddem_coreg_filtered.tif"),
-    "ddem_coreg_tcorr": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr.tif"),
-    "ddem_coreg_tcorr_interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp.tif"),
-    "ddem_coreg_tcorr_interp_signal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp_signal.csv"),
-    "ddem_coreg_tcorr_subregion-interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion-interp.tif"),
-    "ddem_coreg_tcorr_subregion0-interp": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion0-interp.tif"),
-    "ddem_coreg_tcorr_interp-ideal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp-ideal.tif"),
+    "ddem_coreg": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg.tif"),
+    "ddem_coreg_filtered": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_filtered.tif"),
+    "ddem_coreg_tcorr": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr.tif"),
+    "ddem_coreg_tcorr_interp": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_interp.tif"),
+    "ddem_coreg_tcorr_interp_signal": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_interp_signal.csv"),
+    "ddem_coreg_tcorr_subregion-interp": os.path.join(
+        TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_subregion-interp.tif"
+    ),
+    "ddem_coreg_tcorr_subregion0-interp": os.path.join(
+        TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_subregion0-interp.tif"
+    ),
+    "ddem_coreg_tcorr_interp-ideal": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_interp-ideal.tif"),
     "ddem_coreg_tcorr_subregion-interp-ideal": os.path.join(
-        TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion-interp-ideal.tif"
+        TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_subregion-interp-ideal.tif"
     ),
     "ddem_coreg_tcorr_subregion0-interp-ideal": os.path.join(
-        TEMP_DIRECTORY, "ddem_coreg_tcorr_subregion0-interp-ideal.tif"
+        TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_subregion0-interp-ideal.tif"
     ),
     "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
+    "base_dem_slope": os.path.join(TEMP_SUBDIRS["base_dem"], "base_dem_slope.tif"),
+    "base_dem_aspect": os.path.join(TEMP_SUBDIRS["base_dem"], "base_dem_aspect.tif"),
+    "base_dem_curvature": os.path.join(TEMP_SUBDIRS["base_dem"], "base_dem_curvature.tif"),
 }
 
 for key in TEMP_SUBDIRS:

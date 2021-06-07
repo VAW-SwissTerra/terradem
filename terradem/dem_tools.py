@@ -9,8 +9,10 @@ from numbers import Number
 import numpy as np
 import pandas as pd
 import rasterio as rio
+import richdem as rd
 import scipy.ndimage
 import xdem.spatial_tools
+from osgeo import gdal
 from tqdm import tqdm
 
 import terradem.files
@@ -492,3 +494,29 @@ def ddem_temporal_correction(
 
         with open(os.path.join(output_meta_dir, f"{station}.json"), "w") as outfile:
             json.dump(out_meta, outfile)
+
+
+def generate_terrain_attribute(
+    input_path: str, output_path: str, overwrite: bool = False, attribute: str = "slope"
+) -> None:
+    if os.path.isfile(output_path) and not overwrite:
+        return
+
+    if attribute == "curvature":
+        curvature = rd.TerrainAttribute(rd.LoadGDAL(input_path), attribute)
+
+        with rio.open(input_path) as ref_raster:
+            meta = ref_raster.meta
+            meta.update({"compress": "deflate", "tiled": True})
+            with rio.open(output_path, mode="w", **meta) as output_raster:
+                output_raster.write(curvature, 1)
+    else:
+
+        gdal.DEMProcessing(
+            destName=output_path,
+            srcDS=input_path,
+            processing=attribute,
+            options=gdal.DEMProcessingOptions(
+                creationOptions=["COMPRESS=DEFLATE", "NUM_THREADS=ALL_CPUS", "TILED=TRUE", "BIGTIFF=YES"]
+            ),
+        )
