@@ -53,7 +53,7 @@ def compare_idealized_interpolation(
     print(np.median(differences), xdem.spatial_tools.nmad(differences))
 
 
-def slope_vs_error(num_values: int | float = 5e7) -> None:
+def slope_vs_error(num_values: int | float = 5e6) -> None:
     glacier_mask_ds = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"])
     ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
     slope_ds = rio.open(terradem.files.TEMP_FILES["base_dem_slope"])
@@ -110,8 +110,10 @@ def slope_vs_error(num_values: int | float = 5e7) -> None:
         bins = np.linspace(values[:, dim].min(), values[:, dim].max(), 20)
         indices = np.digitize(values[:, dim], bins=bins)
         for i in np.unique(indices):
+            if i == bins.shape[0]:
+                continue
             vals = values[:, 0][indices == i]
-            xs = values[:, dim][indices == i].mean()
+            xs = bins[i]
             plt.boxplot(x=vals, positions=[xs], vert=True, manage_ticks=False, sym="", widths=(bins[1] - bins[0]) * 0.9)
 
         plt.xlabel(xlabel)

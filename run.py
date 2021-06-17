@@ -61,6 +61,7 @@ def main() -> None:
     )
     """
 
+    """
     terradem.dem_tools.generate_terrain_attribute(
         input_path=terradem.files.INPUT_FILE_PATHS["base_dem"],
         output_path=terradem.files.TEMP_FILES["base_dem_slope"],
@@ -77,8 +78,8 @@ def main() -> None:
         output_path=terradem.files.TEMP_FILES["base_dem_curvature"],
         attribute="curvature",
     )
-
     """
+
     print("Generating idealized dDEMs")
     terradem.interpolation.normalized_regional_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
@@ -87,8 +88,9 @@ def main() -> None:
         signal=terradem.interpolation.read_hypsometric_signal(
             terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"]
         ),
-        idealized_ddem=True
+        idealized_ddem=True,
     )
+    """
     terradem.interpolation.subregion_normalized_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
         output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp-ideal"],
