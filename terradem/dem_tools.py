@@ -21,7 +21,12 @@ import terradem.metadata
 import terradem.utilities
 
 
-def merge_rasters(directory_or_filepaths: str | list[str], output_path: str) -> None:
+def merge_rasters(
+    directory_or_filepaths: str | list[str],
+    output_path: str,
+    min_median: float | None = None,
+    max_median: float | None = None,
+) -> None:
     """
     Merge all rasters in a directory using the nanmean of each pixel.
 
@@ -29,6 +34,8 @@ def merge_rasters(directory_or_filepaths: str | list[str], output_path: str) -> 
 
     :param directory_or_filepaths: The directory to search for rasters or a list of filepaths.
     :param output_path: The path to write the merged raster.
+    :param min_median: Optional. Skip merging a raster if the median is lower than this value.
+    :param max_median: Optional. Skip merging a raster if the median is higher than this value.
     """
     if isinstance(directory_or_filepaths, str):
         filepaths = [
@@ -92,6 +99,16 @@ def merge_rasters(directory_or_filepaths: str | list[str], output_path: str) -> 
             ),
             masked=True,
         ).filled(np.nan)
+
+        # If min_median or max_median are specified, skip if the median is not within these bounds.
+        median = np.nanmedian(raster_data)
+        if any(
+            [
+                (median < min_median) if min_median is not None else False,
+                (median > max_median) if max_median is not None else False,
+            ]
+        ):
+            continue
 
         # Create a slice for the small raster's values into the merged raster.
         merged_s = np.s_[upper : upper + raster_data.shape[0], left : left + raster_data.shape[1]]

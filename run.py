@@ -1,4 +1,6 @@
 """Run the entire post-processing workflow."""
+import os
+
 import terradem.coregistration
 import terradem.dem_tools
 import terradem.files
@@ -9,6 +11,10 @@ import terradem.utilities
 
 
 def main() -> None:
+
+    # This is the only dDEM that was integral to remove but wasn't removed automatically, so here I am, hardcoding...
+    if os.path.isfile(os.path.join(terradem.files.TEMP_SUBDIRS["ddems_coreg_tcorr"], "station_2249_ddem.tif")):
+        os.remove(os.path.join(terradem.files.TEMP_SUBDIRS["ddems_coreg_tcorr"], "station_2249_ddem.tif"))  # noqa
 
     # Perform bias correction and ICP coregistration on all DEMs to the base DEM
     # This takes a while! Probably because of bad threading locks to the shared data?
@@ -30,12 +36,12 @@ def main() -> None:
     # ddem_selection = terradem.dem_tools.filter_ddems()
 
     # terradem.dem_tools.merge_rasters(ddem_selection, "temp/merged_ddem.tif")
-    r"""
     terradem.dem_tools.merge_rasters(
-        terradem.utilities.list_files(terradem.files.TEMP_SUBDIRS["ddems_coreg_tcorr"], r".*\.tif"),
-        output_path=terradem.files.TEMP_FILES["ddem_coreg_tcorr"]
+        terradem.utilities.list_files(terradem.files.TEMP_SUBDIRS["ddems_coreg_tcorr"], r".*\.tif$"),
+        output_path=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        min_median=-350 / 90,
+        max_median=100 / 90,
     )
-    """
 
     """
     terradem.interpolation.normalized_regional_hypsometric(
@@ -80,6 +86,7 @@ def main() -> None:
     )
     """
 
+    """
     print("Generating idealized dDEMs")
     terradem.interpolation.normalized_regional_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
@@ -90,6 +97,7 @@ def main() -> None:
         ),
         idealized_ddem=True,
     )
+    """
     """
     terradem.interpolation.subregion_normalized_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
