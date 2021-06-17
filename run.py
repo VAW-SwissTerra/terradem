@@ -33,9 +33,7 @@ def main() -> None:
     )
     terradem.dem_tools.get_ddem_statistics()
     """
-    # ddem_selection = terradem.dem_tools.filter_ddems()
 
-    # terradem.dem_tools.merge_rasters(ddem_selection, "temp/merged_ddem.tif")
     terradem.dem_tools.merge_rasters(
         terradem.utilities.list_files(terradem.files.TEMP_SUBDIRS["ddems_coreg_tcorr"], r".*\.tif$"),
         output_path=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
@@ -43,30 +41,40 @@ def main() -> None:
         max_median=100 / 90,
     )
 
-    """
-    terradem.interpolation.normalized_regional_hypsometric(
-        terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-        terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp"],
-        terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"],
-        signal=signal
-    )
-    """
-
-    """
+    # Create raster versions of each SGI subregion
     terradem.outlines.rasterize_sgi_zones(level=0, overwrite=False)
+    terradem.outlines.rasterize_sgi_zones(level=1, overwrite=False)
 
     print("Extracting regional signals.")
     terradem.interpolation.get_regional_signals(level=0)
+    terradem.interpolation.get_regional_signals(level=1)
 
-    print("Interpolating dDEM.")
+    # At least 20% of the glaciers have to be covered by pixels for norm-regional-hypso
+    min_coverage = 0.2
+
+    print("Running normalized regional hypsometric interpolation (without subregions).")
+    terradem.interpolation.normalized_regional_hypsometric(
+        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp"],
+        output_signal_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"],
+        min_coverage=min_coverage,
+    )
+
+    print("Running normalized regional hypsometric interpolation (subregion level 0).")
     terradem.interpolation.subregion_normalized_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
         output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp"],
         level=0,
-        min_coverage=0.1
+        min_coverage=min_coverage,
     )
-    """
 
+    print("Running normalized regional hypsometric interpolation (subregion level 1).")
+    terradem.interpolation.subregion_normalized_hypsometric(
+        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp"],
+        level=1,
+        min_coverage=min_coverage,
+    )
     """
     terradem.dem_tools.generate_terrain_attribute(
         input_path=terradem.files.INPUT_FILE_PATHS["base_dem"],
@@ -86,8 +94,8 @@ def main() -> None:
     )
     """
 
-    """
-    print("Generating idealized dDEMs")
+    # Generate idealized dDEMs to compare the discrepancy between them and the actual data.
+    print("Generating idealized dDEM (without subregions)")
     terradem.interpolation.normalized_regional_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
         output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp-ideal"],
@@ -96,24 +104,26 @@ def main() -> None:
             terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"]
         ),
         idealized_ddem=True,
+        min_coverage=min_coverage,
     )
-    """
-    """
+
+    print("Generating idealized dDEM (subregion level 0)")
     terradem.interpolation.subregion_normalized_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
         output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp-ideal"],
         level=0,
-        min_coverage=0.1,
+        min_coverage=min_coverage,
         idealized_ddem=True,
     )
+
+    print("Generating idealized dDEM (subregion level 1)")
     terradem.interpolation.subregion_normalized_hypsometric(
         ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
         output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion-interp-ideal"],
         level=1,
-        min_coverage=0.1,
+        min_coverage=min_coverage,
         idealized_ddem=True,
     )
-    """
 
     # terradem.massbalance.get_volume_change()
 
