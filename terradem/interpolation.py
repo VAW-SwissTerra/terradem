@@ -5,6 +5,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import rasterio as rio
+import scipy.interpolate
 import xdem
 from tqdm import tqdm
 
@@ -170,5 +171,45 @@ def subregion_normalized_hypsometric(
         )
 
 
-def regional_hypsometric(ddem_filepath: str, output_filepath: str) -> None:
-    pass
+def regional_hypsometric(ddem_filepath: str, output_filepath: str, output_filepath_ideal: str) -> None:
+
+    ddem_ds = rio.open(ddem_filepath)
+    glacier_indices_ds = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"])
+    base_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
+
+    ddem = ddem_ds.read(1, masked=True).filled(np.nan)
+    base_dem = base_dem_ds.read(1, masked=True).filled(np.nan)
+    glacier_mask = glacier_indices_ds.read(1, masked=True).filled(0) > 0
+
+    inlier_mask = np.isfinite(ddem) & np.isfinite(base_dem) & glacier_mask
+
+    # Estimate the elevation dependent gradient.
+    gradient = xdem.volume.hypsometric_binning(
+        ddem[inlier_mask],
+        base_dem[inlier_mask],
+        bins=50,
+        kind="quantile",
+    )
+
+    # Interpolate possible missing elevation bins in 1D - no extrapolation done here
+    interpolated_gradient = xdem.volume.interpolate_hypsometric_bins(gradient)
+
+    gradient_model = scipy.interpolate.interp1d(
+        interpolated_gradient.index.mid, interpolated_gradient["value"].values, fill_value="extrapolate"
+    )
+
+    # Create an idealized dDEM using the relationship between elevation and dDEM
+    idealized_ddem = np.zeros_like(ddem)
+    idealized_ddem[glacier_mask] = gradient_model(base_dem[glacier_mask])
+
+    # Replace ddem gaps with idealized hypsometric ddem, but only within mask
+    corrected_ddem = np.where(inlier_mask, idealized_ddem, ddem)
+
+    meta = ddem_ds.meta
+    meta.update({"compress": "deflate"})
+
+    with rio.open(output_filepath, "w", **meta) as out_raster:
+        out_raster.write(corrected_ddem, 1)
+
+    with rio.open(output_filepath_ideal, "w", **meta) as out_raster:
+        out_raster.write(idealized_ddem, 1)

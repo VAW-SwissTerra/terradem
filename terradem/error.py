@@ -1,10 +1,12 @@
 """Functions to calculate DEM/dDEM error."""
 from __future__ import annotations
 
+import os
 import random
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import rasterio as rio
 import xdem
 from tqdm import tqdm
@@ -13,9 +15,8 @@ import terradem.files
 
 
 def compare_idealized_interpolation(
-    idealized_ddem_path: str = terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp-ideal"],
     ddem_path: str = terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-    max_residuals: float | int = 1e7,
+    max_residuals: float | int = 1e8,
 ) -> None:
     """
     Compare an "idealized" interpolated dDEM with actual glacier values.
@@ -24,33 +25,58 @@ def compare_idealized_interpolation(
     :param ddem_path: The path to the dDEM without interpolation.
     """
     glacier_mask_ds = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"])
-    idealized_ddem_ds = rio.open(idealized_ddem_path)
     ddem_ds = rio.open(ddem_path)
+
+    idealized_ddems = {key: value for key, value in terradem.files.TEMP_FILES.items() if "-ideal" in key}
+
+    idealized_ddem_dss = {key: rio.open(value) for key, value in idealized_ddems.items() if os.path.isfile(value)}
 
     windows = [window for ij, window in glacier_mask_ds.block_windows()]
     random.shuffle(windows)
 
-    differences = np.zeros(shape=(0,), dtype="float32")
+    differences = {key: np.zeros(shape=(0,)) for key in idealized_ddem_dss}
 
-    for window in tqdm(windows):
+    progress_bar = tqdm(
+        total=max_residuals if max_residuals != 0 else len(windows), desc="Comparing dDEM with idealized dDEMs"
+    )
+
+    for window in windows:
         glacier_mask = glacier_mask_ds.read(1, window=window, masked=True).filled(0) > 0
-        idealized_ddem = idealized_ddem_ds.read(1, window=window, masked=True).filled(np.nan)
         ddem = ddem_ds.read(1, window=window, masked=True).filled(np.nan)
-
         ddem[~glacier_mask] = np.nan
 
         if np.all(np.isnan(ddem)):
             continue
 
-        difference = idealized_ddem - ddem
+        new_value_count: list[int] = []
+        for key in idealized_ddem_dss:
+            idealized_ddem = idealized_ddem_dss[key].read(1, window=window, masked=True).filled(np.nan)
 
-        differences = np.append(differences, difference[np.isfinite(difference)])
+            difference = idealized_ddem - ddem
+            difference = difference[np.isfinite(difference)]
 
-        if max_residuals != 0 and differences.shape[0] > int(max_residuals):
+            new_value_count.append(difference.shape[0])
+
+            differences[key] = np.append(differences[key], difference)
+
+        if max_residuals != 0:
+            progress_bar.update(min(new_value_count))
+        else:
+            progress_bar.update()
+
+        if max_residuals != 0 and all(diff.shape[0] > int(max_residuals) for diff in differences.values()):
             break
 
-    print(differences)
-    print(np.median(differences), xdem.spatial_tools.nmad(differences))
+    output = pd.DataFrame(
+        {
+            key: {"median": np.median(values), "nmad": xdem.spatial_tools.nmad(values)}
+            for key, values in differences.items()
+        }
+    )
+
+    output.to_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"])
+
+    print(output.to_string())
 
 
 def slope_vs_error(num_values: int | float = 5e6) -> None:
