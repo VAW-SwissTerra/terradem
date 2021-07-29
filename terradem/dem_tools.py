@@ -519,12 +519,12 @@ def generate_terrain_attribute(
     if os.path.isfile(output_path) and not overwrite:
         return
 
-    if attribute == "curvature":
+    if attribute in ["curvature", "planform_curvature", "profile_curvature"]:
         curvature = rd.TerrainAttribute(rd.LoadGDAL(input_path), attribute)
 
         with rio.open(input_path) as ref_raster:
             meta = ref_raster.meta
-            meta.update({"compress": "deflate", "tiled": True})
+            meta.update({"compress": "deflate", "tiled": True, "nodata": -9999})
             with rio.open(output_path, mode="w", **meta) as output_raster:
                 output_raster.write(curvature, 1)
     else:

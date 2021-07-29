@@ -1,5 +1,6 @@
 """Run the entire post-processing workflow."""
 import os
+import warnings
 
 import terradem.coregistration
 import terradem.dem_tools
@@ -50,94 +51,56 @@ def main() -> None:
     terradem.interpolation.get_regional_signals(level=1)
 
     """
-    # At least 20% of the glaciers have to be covered by pixels for norm-regional-hypso
-    min_coverage = 0.2
-    """
-
-    print("Running normalized regional hypsometric interpolation (without subregions).")
-    terradem.interpolation.normalized_regional_hypsometric(
-        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp"],
-        output_signal_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"],
-        min_coverage=min_coverage,
-    )
-
-    print("Running normalized regional hypsometric interpolation (subregion level 0).")
-    terradem.interpolation.subregion_normalized_hypsometric(
-        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp"],
-        level=0,
-        min_coverage=min_coverage,
-    )
-
-    print("Running normalized regional hypsometric interpolation (subregion level 1).")
-    terradem.interpolation.subregion_normalized_hypsometric(
-        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp"],
-        level=1,
-        min_coverage=min_coverage,
-    )
-    terradem.dem_tools.generate_terrain_attribute(
-        input_path=terradem.files.INPUT_FILE_PATHS["base_dem"],
-        output_path=terradem.files.TEMP_FILES["base_dem_slope"],
-        attribute="slope",
-    )
-
-    terradem.dem_tools.generate_terrain_attribute(
-        input_path=terradem.files.INPUT_FILE_PATHS["base_dem"],
-        output_path=terradem.files.TEMP_FILES["base_dem_aspect"],
-        attribute="aspect",
-    )
-    terradem.dem_tools.generate_terrain_attribute(
-        input_path=terradem.files.INPUT_FILE_PATHS["base_dem"],
-        output_path=terradem.files.TEMP_FILES["base_dem_curvature"],
-        attribute="curvature",
-    )
-    """
-
-    # Generate idealized dDEMs to compare the discrepancy between them and the actual data.
-    print("Generating idealized dDEM (without subregions)")
-    terradem.interpolation.normalized_regional_hypsometric(
-        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp-ideal"],
-        output_signal_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"],
-        signal=terradem.interpolation.read_hypsometric_signal(
-            terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp_signal"]
-        ),
-        idealized_ddem=True,
-        min_coverage=min_coverage,
-    )
-
-    print("Generating idealized dDEM (subregion level 0)")
-    terradem.interpolation.subregion_normalized_hypsometric(
-        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp-ideal"],
-        level=0,
-        min_coverage=min_coverage,
-        idealized_ddem=True,
-    )
-
-    print("Generating idealized dDEM (subregion level 1)")
-    terradem.interpolation.subregion_normalized_hypsometric(
-        ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-        output_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion-interp-ideal"],
-        level=1,
-        min_coverage=min_coverage,
-        idealized_ddem=True,
-    )
-
-    for key in ["_interp", "_subregion-interp", "_subregion0-interp"]:
-        input_key = "ddem_coreg_tcorr" + key
-        output_key = input_key + "-extrap"
-        output_ideal_key = output_key + "-ideal"
-        print(f"Running 'regular' regional hypsometric inter-/extrapolation on {input_key}")
-        terradem.interpolation.regional_hypsometric(
-            ddem_filepath=terradem.files.TEMP_FILES[input_key],
-            output_filepath=terradem.files.TEMP_FILES[output_key],
-            output_filepath_ideal=terradem.files.TEMP_FILES[output_ideal_key],
+    for attribute in terradem.files.TERRAIN_ATTRIBUTES:
+        terradem.dem_tools.generate_terrain_attribute(
+            input_path=terradem.files.INPUT_FILE_PATHS["base_dem"],
+            output_path=terradem.files.TEMP_FILES[f"base_dem_{attribute}"],
+            overwrite=False,
+            attribute=attribute,
         )
 
-    terradem.error.compare_idealized_interpolation()
+    """
+    # At least 20% of the glaciers have to be covered by pixels for norm-regional-hypso
+    min_coverage = 0.2
+    print(f"Running inter-/extrapolation on scales: {terradem.files.INTERPOLATION_SCALES}")
+    for scale in terradem.files.INTERPOLATION_SCALES:
+        if scale == "national":
+            warnings.warn("Skipping national scale")
+            continue
+        base_key = "ddem_coreg_tcorr_" + scale
+
+        # Level -1 is national, 0 is SGI subregion 0, 1 is SGI subregion 1
+        level = -1 if scale == "national" else int(scale.replace("subregion", ""))
+
+        # These are the associated TEMP_FILES keys and output names for the interpolated products.
+        interp_key = base_key + "-interp"
+        interp_ideal_key = interp_key + "-ideal"
+
+        # Interpolate the dDEM in the associated scale.
+        print(f"Running normalized regional hypsometric interpolation on {scale} scale.")
+        terradem.interpolation.subregion_normalized_hypsometric(
+            ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+            output_filepath=terradem.files.TEMP_FILES[interp_key],
+            output_filepath_ideal=terradem.files.TEMP_FILES[interp_ideal_key],
+            level=level,
+            min_coverage=min_coverage,
+        )
+
+
+        # These are the associated TEMP_FILES keys and output names for the extrapolated products.
+        extrap_key = interp_key + "-extrap"
+        extrap_ideal_key = extrap_key + "-ideal"
+
+        # Extrapolate the interpolated dDEM in the associated scale.
+        print(f"Running 'regular' regional hypsometric inter-/extrapolation on {scale} scale.")
+        terradem.interpolation.regional_hypsometric(
+            ddem_filepath=terradem.files.TEMP_FILES[interp_key],
+            output_filepath=terradem.files.TEMP_FILES[extrap_key],
+            output_filepath_ideal=terradem.files.TEMP_FILES[extrap_ideal_key],
+        )
+    """
+
+    # terradem.error.compare_idealized_interpolation()
 
     # terradem.massbalance.get_volume_change()
 

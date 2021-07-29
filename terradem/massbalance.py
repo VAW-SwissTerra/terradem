@@ -90,9 +90,9 @@ def get_volume_change() -> None:
 
     ddem_versions = {
         "non_interp": terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
-        "norm-regional": terradem.files.TEMP_FILES["ddem_coreg_tcorr_interp"],
-        "norm-regional-sgi1-subregion": terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion-interp"],
-        "norm-regional-sgi0-subregion": terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp"],
+        "norm-regional-national": terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"],
+        "norm-regional-sgi1-subregion": terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion1-interp-extrap"],
+        "norm-regional-sgi0-subregion": terradem.files.TEMP_FILES["ddem_coreg_tcorr_subregion0-interp-extrap"],
     }
 
     output = pd.DataFrame(

@@ -15,10 +15,8 @@ dependencies:
         - pytest
         - pytransform3d
         - geoutils
-        - xdem
+        - richdem
+          #- xdem
 
         # For developing
         - pre-commit
-
-        - pip:
-                - richdem

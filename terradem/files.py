@@ -42,28 +42,25 @@ TEMP_SUBDIRS = {
 TEMP_FILES = {
     "ddem_stats": os.path.join(TEMP_DIRECTORY, "ddem_stats.csv"),
     "ddem_coreg": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg.tif"),
-    "ddem_coreg_filtered": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_filtered.tif"),
     "ddem_coreg_tcorr": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr.tif"),
-    "ddem_coreg_tcorr_interp": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_interp.tif"),
-    "ddem_coreg_tcorr_interp_signal": os.path.join(TEMP_DIRECTORY, "ddem_coreg_tcorr_interp_signal.csv"),
-    "ddem_coreg_tcorr_subregion-interp": os.path.join(
-        TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_subregion-interp.tif"
-    ),
-    "ddem_coreg_tcorr_subregion0-interp": os.path.join(
-        TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_subregion0-interp.tif"
-    ),
-    "ddem_coreg_tcorr_interp-ideal": os.path.join(TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_interp-ideal.tif"),
-    "ddem_coreg_tcorr_subregion-interp-ideal": os.path.join(
-        TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_subregion-interp-ideal.tif"
-    ),
-    "ddem_coreg_tcorr_subregion0-interp-ideal": os.path.join(
-        TEMP_SUBDIRS["merged_ddems"], "ddem_coreg_tcorr_subregion0-interp-ideal.tif"
-    ),
+    "ddem_coreg_tcorr_interp_signal": os.path.join(TEMP_SUBDIRS["hypsometric_signals"], "SGI_national_normalized.csv"),
     "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
-    "base_dem_slope": os.path.join(TEMP_SUBDIRS["base_dem"], "base_dem_slope.tif"),
-    "base_dem_aspect": os.path.join(TEMP_SUBDIRS["base_dem"], "base_dem_aspect.tif"),
-    "base_dem_curvature": os.path.join(TEMP_SUBDIRS["base_dem"], "base_dem_curvature.tif"),
+    "ddem_vs_ideal_error": os.path.join(TEMP_DIRECTORY, "ddem_vs_ideal_error.csv"),
 }
+
+TERRAIN_ATTRIBUTES = ["slope", "aspect", "curvature", "planform_curvature", "profile_curvature"]
+for attr in TERRAIN_ATTRIBUTES:
+    TEMP_FILES[f"base_dem_{attr}"] = os.path.join(TEMP_SUBDIRS["base_dem"], f"base_dem_{attr}.tif")
+
+INTERPOLATION_SCALES = ["national", "subregion0", "subregion1"]
+
+# Add keys for interpolation and extrapolation products from the corrected dDEM
+for product in INTERPOLATION_SCALES:
+    BASE_KEY = "ddem_coreg_tcorr_" + product
+
+    for ext in ["-interp", "-interp-ideal", "-interp-extrap", "-interp-extrap-ideal"]:
+        TEMP_FILES[BASE_KEY + ext] = os.path.join(TEMP_SUBDIRS["merged_ddems"], BASE_KEY + ext + ".tif")
+
 
 for key in TEMP_SUBDIRS:
     os.makedirs(TEMP_SUBDIRS[key], exist_ok=True)

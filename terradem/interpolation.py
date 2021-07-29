@@ -1,6 +1,8 @@
 """Functions for dDEM / DEM interpolation."""
+from __future__ import annotations
+
 import os
-from typing import Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,11 +18,11 @@ import terradem.outlines
 def normalized_regional_hypsometric(
     ddem_filepath: str,
     output_filepath: str,
+    output_ideal_filepath: str,
     output_signal_filepath: str,
     min_coverage: float = 0.1,
-    signal: Optional[pd.DataFrame] = None,
+    signal: pd.DataFrame | None = None,
     glacier_indices_filepath: str = terradem.files.TEMP_FILES["lk50_rasterized"],
-    idealized_ddem: bool = False,
     verbose: bool = True,
 ) -> None:
     """
@@ -56,15 +58,16 @@ def normalized_regional_hypsometric(
         )
         signal.to_csv(output_signal_filepath)
 
-    interpolated_ddem = xdem.volume.norm_regional_hypsometric_interpolation(
+    ideal_ddem = xdem.volume.norm_regional_hypsometric_interpolation(
         voided_ddem=ddem,
         ref_dem=ref_dem,
         glacier_index_map=glacier_indices,
         regional_signal=signal,
         min_coverage=min_coverage,
-        idealized_ddem=idealized_ddem,
+        idealized_ddem=True,
         verbose=verbose,
     )
+    interpolated_ddem = np.where(np.isfinite(ddem), ddem, ideal_ddem)
 
     meta = ddem_ds.meta
     meta.update(
@@ -79,6 +82,11 @@ def normalized_regional_hypsometric(
     with rio.open(output_filepath, "w", **meta) as raster:
         raster.write(
             np.where(np.isfinite(interpolated_ddem), interpolated_ddem, ddem_ds.nodata),
+            1,
+        )
+    with rio.open(output_ideal_filepath, "w", **meta) as raster:
+        raster.write(
+            np.where(np.isfinite(ideal_ddem), ideal_ddem, ddem_ds.nodata),
             1,
         )
 
@@ -98,11 +106,16 @@ def get_regional_signals(level: int = 1) -> None:
 
     assert ref_dem.shape == ddem.shape
 
-    for region in tqdm(terradem.outlines.get_sgi_regions(level=level)):
+    regions = ["national"] if level == -1 else terradem.outlines.get_sgi_regions(level=level)
 
-        glacier_indices_ds = rio.open(
-            os.path.join(terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif")
+    for region in tqdm(regions, disable=(len(regions) < 2)):
+
+        filepath = (
+            terradem.files.TEMP_FILES["lk50_rasterized"]
+            if region == "national"
+            else os.path.join(terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif")
         )
+        glacier_indices_ds = rio.open(filepath)
 
         glacier_indices = glacier_indices_ds.read(1)
 
@@ -134,13 +147,41 @@ def read_hypsometric_signal(filepath: str) -> pd.DataFrame:
 
 
 def subregion_normalized_hypsometric(
-    ddem_filepath: str, output_filepath: str, level: int = 1, min_coverage: float = 0.1, idealized_ddem: bool = False
+    ddem_filepath: str, output_filepath: str, output_filepath_ideal: str, level: int = 1, min_coverage: float = 0.1
 ) -> None:
 
-    regions = terradem.outlines.get_sgi_regions(level=level).items()
+    # If level == -1, read it as "national scale" (no subdivision)
+    # In that case, the second argument here can be None as the associated check is unnecessary
+    if level == -1:
+        regions: list[tuple[str, Any | None]] = [("national", None)]
+    else:
+        regions = list(terradem.outlines.get_sgi_regions(level=level).items())
 
-    for i, (region, outlines) in tqdm(
-        enumerate(regions), total=len(regions), desc=f"Running norm. hypso. on region sublevel {level}"
+    ddem_ds = rio.open(ddem_filepath)
+    base_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
+
+    window = rio.windows.from_bounds(634079, 136532, 652019, 145879, transform=ddem_ds.transform)
+    window = rio.windows.from_bounds(*ddem_ds.bounds, transform=ddem_ds.transform)
+
+    ddem = ddem_ds.read(1, masked=True, window=window).filled(np.nan)
+    base_dem = base_dem_ds.read(1, masked=True, window=window).filled(-9999)
+
+    ideal_ddem = np.empty_like(ddem) + np.nan
+
+    # All signals need to exist already. If they don't, generate them.
+    if not all(
+        os.path.isfile(os.path.join(terradem.files.TEMP_SUBDIRS["hypsometric_signals"], f"SGI_{region}_normalized.csv"))
+        for region, _ in regions
+    ):
+        print(f"Acquiring new hypsometric signals for subregion level {level}")
+        get_regional_signals(level=level)
+
+    # Loop over all subregions (or just one loop if it's national) and generate an ideal dDEM
+    for _, (region, outlines) in tqdm(
+        enumerate(regions),
+        total=len(regions),
+        desc=f"Running norm. hypso. on region sublevel {level}",
+        disable=(level == -1),
     ):
 
         # Read the already produced hypsometric signal
@@ -148,26 +189,59 @@ def subregion_normalized_hypsometric(
             os.path.join(terradem.files.TEMP_SUBDIRS["hypsometric_signals"], f"SGI_{region}_normalized.csv")
         )
 
-        total_area = outlines.geometry.area.sum()
-        covered_area = signal["count"].sum() * (5 ** 2)
-        if (covered_area / total_area) < min_coverage:
-            continue
+        # For small subregions with few glaciers, validate that there is actually any cover.
+        if outlines is not None:
+            total_area = outlines.geometry.area.sum()
+            covered_area = signal["count"].sum() * (5 ** 2)
+            if (covered_area / total_area) < min_coverage:
+                continue
 
-        glacier_indices_filepath = os.path.join(
-            terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif"
+        glacier_indices_filepath = (
+            terradem.files.TEMP_FILES["lk50_rasterized"]
+            if level == -1
+            else os.path.join(terradem.files.TEMP_SUBDIRS["rasterized_sgi_zones"], f"SGI_{region}.tif")
         )
 
-        input_filepath = ddem_filepath if i == 0 else output_filepath
+        glacier_indices = rio.open(glacier_indices_filepath).read(1, masked=True, window=window).filled(0)
 
-        normalized_regional_hypsometric(
-            ddem_filepath=input_filepath,
-            output_filepath=output_filepath,
-            output_signal_filepath="",
+        # Generate an ideal dDEM for the subregion
+        new_ideal_ddem = xdem.volume.norm_regional_hypsometric_interpolation(
+            voided_ddem=ddem,
+            ref_dem=base_dem,
+            glacier_index_map=glacier_indices,
             min_coverage=min_coverage,
-            signal=signal,
-            glacier_indices_filepath=glacier_indices_filepath,
+            regional_signal=signal,
             verbose=False,
-            idealized_ddem=idealized_ddem,
+            idealized_ddem=True,
+        )
+
+        # Fill the final ideal dDEM with the new ideal dDEM (within its subregion only)
+        finites = np.isfinite(new_ideal_ddem)
+        ideal_ddem[finites] = new_ideal_ddem[finites]
+
+    # Once the ideal dDEM is finished, replace nans with the ideal wherever possible.
+    # Places where both products are NaN will also be NaN
+    nonfinites = ~np.isfinite(ddem)
+    ddem[nonfinites] = ideal_ddem[nonfinites]
+
+    meta = ddem_ds.meta
+    meta.update(
+        {
+            "compress": "deflate",
+            "tiled": True,
+        }
+    )
+
+    # Save the output normal and ideal dDEM
+    with rio.open(output_filepath, "w", **meta) as raster:
+        raster.write(
+            np.where(np.isfinite(ddem), ddem, ddem_ds.nodata),
+            1,
+        )
+    with rio.open(output_filepath_ideal, "w", **meta) as raster:
+        raster.write(
+            np.where(np.isfinite(ideal_ddem), ideal_ddem, ddem_ds.nodata),
+            1,
         )
 
 
@@ -199,17 +273,17 @@ def regional_hypsometric(ddem_filepath: str, output_filepath: str, output_filepa
     )
 
     # Create an idealized dDEM using the relationship between elevation and dDEM
-    idealized_ddem = np.zeros_like(ddem)
+    idealized_ddem = np.empty_like(ddem) + np.nan
     idealized_ddem[glacier_mask] = gradient_model(base_dem[glacier_mask])
 
     # Replace ddem gaps with idealized hypsometric ddem, but only within mask
-    corrected_ddem = np.where(inlier_mask, idealized_ddem, ddem)
+    corrected_ddem = np.where(glacier_mask & ~np.isfinite(ddem), idealized_ddem, ddem)
 
     meta = ddem_ds.meta
-    meta.update({"compress": "deflate"})
+    meta.update({"compress": "deflate", "tiled": True})
 
     with rio.open(output_filepath, "w", **meta) as out_raster:
-        out_raster.write(corrected_ddem, 1)
+        out_raster.write(np.where(np.isfinite(corrected_ddem), corrected_ddem, meta["nodata"]), 1)
 
     with rio.open(output_filepath_ideal, "w", **meta) as out_raster:
-        out_raster.write(idealized_ddem, 1)
+        out_raster.write(np.where(np.isfinite(idealized_ddem), idealized_ddem, meta["nodata"]), 1)

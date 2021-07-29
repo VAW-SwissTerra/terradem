@@ -1,4 +1,3 @@
-"""Functions to calculate DEM/dDEM error."""
 from __future__ import annotations
 
 import os
@@ -8,6 +7,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio as rio
+import sklearn
+import sklearn.pipeline
+import sklearn.preprocessing
 import xdem
 from tqdm import tqdm
 
@@ -148,3 +150,181 @@ def slope_vs_error(num_values: int | float = 5e6) -> None:
 
     plt.tight_layout()
     plt.show()
+
+
+def get_error(n_values: int = int(5e6), overwrite=False):
+
+    cache_path = "temp/error_vals.pkl"
+
+    # test_bounds = rio.coords.BoundingBox(659940, 164390, 667690,172840)
+
+    datasets = {
+        ds: rio.open(key)
+        for ds, key in [
+            ("glacier_mask", terradem.files.TEMP_FILES["lk50_rasterized"]),
+            ("ddem", terradem.files.TEMP_FILES["ddem_coreg_tcorr"]),
+            ("base_dem", terradem.files.INPUT_FILE_PATHS["base_dem"]),
+        ]
+        + [(attr, terradem.files.TEMP_FILES[f"base_dem_{attr}"]) for attr in terradem.files.TERRAIN_ATTRIBUTES]
+    }
+
+    if not overwrite and os.path.isfile(cache_path):
+        values = pd.read_pickle(cache_path)
+        print("Read values")
+    else:
+        windows = [window for ij, window in datasets["ddem"].block_windows()]
+        random.shuffle(windows)
+        # windows = [datasets["ddem"].window(*test_bounds)]
+
+        values = pd.DataFrame(columns=[k for k in datasets.keys() if k != "glacier_mask"])
+
+        progress_bar = tqdm(total=n_values, smoothing=0)
+
+        for window in windows:
+            data = {
+                key: datasets[key].read(1, window=window, masked=True).filled(np.nan if key != "glacier_mask" else 0)
+                for key in datasets
+            }
+
+            window_values = pd.DataFrame(np.vstack([value.ravel() for value in data.values()]).T, columns=data.keys())[
+                values.columns
+            ]
+            stable_ground_mask = (data["glacier_mask"] == 0).ravel() & np.all(np.isfinite(window_values), axis=1)
+
+            if np.count_nonzero(stable_ground_mask) == 0:
+                continue
+
+            values = values.append(window_values[stable_ground_mask])
+            progress_bar.update(np.count_nonzero(stable_ground_mask))
+            if values.shape[0] > n_values:
+                break
+
+        values.to_pickle(cache_path)
+
+        progress_bar.close()
+
+    values = values.sample(100000)
+    print(values)
+
+    predictors = ["slope", "aspect", "curvature", "profile_curvature", "planform_curvature"]
+
+    bins = 30
+
+    df = xdem.spatialstats.nd_binning(
+        values["ddem"],
+        values[predictors].values.T,
+        list_var_names=predictors,
+        list_var_bins=[np.nanquantile(values[p], np.linspace(0, 1, bins)) for p in predictors],
+    )
+
+    error_model = xdem.spatialstats.interp_nd_binning(df, list_var_names=predictors, statistic="nmad", min_count=10)
+
+    plotting_props = {
+        "slope": {"label": "Slope (°)"},
+        "aspect": {"label": "Aspect (°)"},
+        "planform_curvature": {"label": "Planform curvature (1/100 m)"},
+        "profile_curvature": {"label": "Profile curvature (1/100 m)"},
+        "curvature": {"label": "Curvature (1/100 m)"},
+        "nmad": {"label": "NMAD (m)"},
+    }
+
+    if False:
+        plt.figure(figsize=(8, 5), dpi=200)
+        for i, attr in enumerate(predictors, start=1):
+            axis: plt.Axes = plt.subplot(2, 3, i)
+            data = df[
+                (~df[attr].isna()) & (df["count"] > 0) & (df[[p for p in predictors if p != attr]].isna().all(axis=1))
+            ][["count", "nmad", attr]].set_index(attr)
+
+            if "curvature" in attr:
+                data = data[np.abs(data.index.mid) < 10]
+
+            plt.plot(data.index.mid, data["nmad"], color="black")
+            plt.scatter(data.index.mid, data["nmad"], marker="x")
+            plt.ylim(0, 0.25)
+            if i < 4:
+                plt.gca().xaxis.tick_top()
+                axis.xaxis.set_label_position("top")
+            plt.xlabel(plotting_props[attr]["label"])
+            if i in [1, 4]:
+                plt.ylabel(plotting_props["nmad"]["label"])
+            else:
+                axis.set_yticks(axis.get_yticks())  # If this is not done, the next command will complain.
+                axis.set_yticklabels([""] * len(axis.get_yticks()))
+            plt.grid()
+
+        plt.tight_layout(w_pad=0.1)
+
+        plt.close()
+    # df = df[np.abs(pd.IntervalIndex(df["profile_curvature"]).mid.values) < 10]
+
+    print(df)
+    del values
+    del df
+
+    """
+    return
+    values["ddem_abs"] = values["ddem"].abs()
+    bin_counts, bin_edges = np.histogram(values["ddem_abs"], bins=np.linspace(0, 4))
+
+    values["indices"] = np.digitize(values["ddem_abs"], bin_edges)
+
+
+
+    model = sklearn.linear_model.RANSACRegressor(
+        base_estimator=sklearn.pipeline.make_pipeline(
+            sklearn.preprocessing.Normalizer(), sklearn.preprocessing.PolynomialFeatures(2), sklearn.linear_model.LinearRegression()
+        )
+    ).fit(values[predictors], values["ddem_abs"])
+
+    score = model.score(values[predictors][model.inlier_mask_], values["ddem_abs"][model.inlier_mask_])
+    print(score)
+    """
+
+    import concurrent.futures
+    import threading
+
+    meta = datasets["ddem"].meta.copy()
+    meta.update({"compress": "deflate", "tiled": True, "BIGTIFF": "YES"})
+
+    # small_height = int((test_bounds.top - test_bounds.bottom) / datasets["ddem"].res[0])
+    # small_width = int((test_bounds.right - test_bounds.left) / datasets["ddem"].res[1])
+
+    # meta.update({"transform": rio.transform.from_bounds(*test_bounds, small_width, small_height), "height": small_height, "width": small_width})
+
+    with rio.open("temp/error.tif", "w", **meta) as raster:
+
+        read_lock = threading.Lock()
+        write_lock = threading.Lock()
+
+        windows = [w for ij, w in raster.block_windows()]
+
+        progress_bar = tqdm(total=len(windows), smoothing=0.1)
+
+        def process(window: rio.windows.Window):
+            with read_lock:
+                big_window = datasets["ddem"].window(*rio.windows.bounds(window, meta["transform"]))
+                data = np.vstack(
+                    [datasets[key].read(window=big_window, masked=True).filled(np.nan) for key in predictors]
+                )
+
+            assert data.shape[0] == len(predictors)
+            finites = np.all(np.isfinite(data), axis=0)
+
+            output = np.zeros(data.shape[1:], dtype=data.dtype) + np.nan
+            if np.count_nonzero(finites) > 0:
+                modelled = error_model(data.reshape((len(predictors), -1)).T[finites.ravel()])
+                output[finites] = modelled
+
+            with write_lock:
+                raster.write(output, 1, window=window)
+            progress_bar.update()
+
+        [process(window) for window in windows]
+        # with concurrent.futures.ThreadPoolExecutor() as executor:
+        #    list(executor.map(process, windows))
+
+        progress_bar.close()
+
+    for dataset in datasets.values():
+        dataset.close()
