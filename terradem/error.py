@@ -368,7 +368,7 @@ def terrain_error() -> None:
         np.unique(
             np.concatenate(
                 [
-                    np.quantile(arr, np.linspace(start, stop, num))
+                    np.nanquantile(arr, np.linspace(start, stop, num))
                     for start, stop, num in [(0, 0.95, 20), (0.96, 0.99, 5), (0.991, 1, 10)]
                 ]
             )
@@ -385,7 +385,7 @@ def terrain_error() -> None:
     print(error_df[error_df["nd"] == 1])
     error_model = xdem.spatialstats.interp_nd_binning(
         df=error_df,
-        list_var_names=["slope", "maxc"],
+        list_var_names=["curvature", "slope"],
         min_count=30,
     )
     error = error_model((data["slope"], data["curvature"]))
