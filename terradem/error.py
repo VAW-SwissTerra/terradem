@@ -342,15 +342,11 @@ def terrain_error() -> None:
     data = {"stable_ground": np.zeros((0,), dtype=bool)}
     data.update({key: np.zeros((0,), dtype="float32") for key in ["ddem", "curvature", "slope"]})
 
-    for window in windows[:1000]:
+    for window in windows[: int(0.2 * len(windows))]:
 
         stable_ground = (stable_ground_ds.read(window=window, masked=True).filled(0) == 1).ravel()
 
-        for key, dataset in [
-            ("ddem", ddem_ds),
-            ("curvature", curvature_ds),
-            ("slope", slope_ds),
-        ]:
+        for key, dataset in [("ddem", ddem_ds), ("curvature", curvature_ds), ("slope", slope_ds)]:
             data[key] = np.append(
                 data[key],
                 np.where(
@@ -396,14 +392,23 @@ def terrain_error() -> None:
     transform = rio.transform.from_origin(left, top, *ddem_ds.res)
 
     stable_ground = stable_ground_ds.read(window=window, masked=True).filled(0) == 1
-    slope = np.where(stable_ground, slope_ds.read(window=window, masked=True).filled(np.nan), np.nan)
-    curvature = np.where(stable_ground, curvature_ds.read(window=window, masked=True).filled(np.nan), np.nan)
-    ddem = np.where(stable_ground, ddem_ds.read(window=window, masked=True).filled(np.nan), np.nan)
+    slope = slope_ds.read(window=window, masked=True).filled(np.nan)
+    curvature = curvature_ds.read(window=window, masked=True).filled(np.nan)
+    ddem = ddem_ds.read(window=window, masked=True).filled(np.nan)
 
     error = error_model((curvature, slope)).reshape(slope.shape)
 
     meta = ddem_ds.meta.copy()
-    meta.update({"transform": transform, "count": 1, "compress": "DEFLATE", "tiled": True, "width": window.width, "height": window.height})
+    meta.update(
+        {
+            "transform": transform,
+            "count": 1,
+            "compress": "DEFLATE",
+            "tiled": True,
+            "width": window.width,
+            "height": window.height,
+        }
+    )
     with rio.open("temp/temp_error.tif", "w", **meta) as raster:
         raster.write(error.squeeze(), 1)
 
@@ -434,9 +439,12 @@ def terrain_error() -> None:
     print(variogram.to_string())
 
     vgm_model, params = xdem.spatialstats.fit_sum_model_variogram(["Sph", "Sph"], variogram)
-    xdem.spatialstats.plot_vgm(variogram, xscale_range_split=[100, 1000, 10000], list_fit_fun=[vgm_model],
-                           list_fit_fun_label=['Standardized double-range variogram'])
+    xdem.spatialstats.plot_vgm(
+        variogram,
+        xscale_range_split=[100, 1000, 10000],
+        list_fit_fun=[vgm_model],
+        list_fit_fun_label=["Standardized double-range variogram"],
+    )
     plt.savefig("temp_variogram.jpg", dpi=600)
-
 
     print(np.nanmean(error))
