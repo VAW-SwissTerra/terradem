@@ -386,8 +386,8 @@ def terrain_error() -> None:
     )
 
     # Make a smaller test-area around Grosser Aletschgletscher
-    left = 626897
-    top = 108592
+    left = 663000
+    top = 173000
     window = rio.windows.Window(*ddem_ds.index(left, top, precision=0), 5000, 5000)
     transform = rio.transform.from_origin(left, top, *ddem_ds.res)
 
