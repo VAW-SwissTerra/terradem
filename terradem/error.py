@@ -10,10 +10,10 @@ import rasterio as rio
 import sklearn
 import sklearn.pipeline
 import sklearn.preprocessing
-import xdem
 from tqdm import tqdm
 
 import terradem.files
+import xdem
 
 
 def compare_idealized_interpolation(
@@ -328,3 +328,32 @@ def get_error(n_values: int = int(5e6), overwrite=False):
 
     for dataset in datasets.values():
         dataset.close()
+
+
+def terrain_error():
+
+    slope_ds = rio.open(terradem.files.TEMP_FILES["base_dem_slope"])
+    curvature_ds = rio.open(terradem.files.TEMP_FILES["base_dem_curvature"])
+    glacier_mask_ds = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"])
+    ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
+
+    windows = [w for ij, w in ddem_ds.block_windows()]
+    random.shuffle(windows)
+
+    for window in windows[:3]:
+        data = {"glacier_mask"].astype(bool)
+        data = {
+            key: ds.read(window=window, masked=True).filled(0 if key == "glacier_mask" else np.nan)
+            for key, ds in [
+                ("ddem", ddem_ds),
+                ("curvature", curvature_ds),
+                ("glacier_mask", glacier_mask_ds),
+                ("slope", slope_ds),
+            ]
+        }
+
+        if any(np.all(~np.isfinite(data[key])) for key in data):
+            continue
+
+        
+
