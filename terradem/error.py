@@ -343,7 +343,7 @@ def terrain_error() -> None:
     data.update({key: np.zeros((0,), dtype="float32") for key in ["ddem", "curvature", "slope"]})
 
     for window in windows[:3]:
-        
+
         stable_ground = stable_ground_ds.read(window=window, masked=True).filled(0).astype(bool).ravel()
 
         for key, dataset in [
@@ -355,12 +355,13 @@ def terrain_error() -> None:
             data[key] = np.append(
                 data[key],
                 np.where(
-                    stable_ground, dataset.read(window=window, masked=True).filled(np.nan).ravel(), np.nan
+                    stable_ground,
+                    dataset.read(window=window, masked=True).filled(np.nan).ravel(),
+                    np.nan,
                 ).ravel(),
             )
         data["stable_ground"] = np.append(data["stable_ground"], stable_ground).astype(bool)
 
-    print(data["stable_ground"].dtype)
     if np.all(~data["stable_ground"]) or any(np.all(~np.isfinite(data[key])) for key in data):
         raise ValueError("No single finite periglacial value found.")
 
@@ -389,6 +390,9 @@ def terrain_error() -> None:
         min_count=30,
     )
     error = error_model((data["slope"], data["curvature"]))
+
+    for arr in [error] + list(data.values()):
+        print(arr.shape)
     # Standardize by the error, remove snow/ice values, and remove large outliers.
     standardized_dh = np.where(~data["stable_ground"], np.nan, data["ddem"] / error)
     standardized_dh[np.abs(standardized_dh) > (4 * xdem.spatial_tools.nmad(standardized_dh))] = np.nan
