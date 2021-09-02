@@ -1,6 +1,5 @@
 """Run the entire post-processing workflow."""
 import os
-import warnings
 
 import terradem.coregistration
 import terradem.dem_tools
@@ -99,8 +98,6 @@ def main() -> None:
             output_filepath_ideal=terradem.files.TEMP_FILES[extrap_ideal_key],
         )
     """
-
-
 
     # terradem.error.compare_idealized_interpolation()
 

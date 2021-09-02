@@ -7,13 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio as rio
-import sklearn
-import sklearn.pipeline
-import sklearn.preprocessing
+import xdem
 from tqdm import tqdm
 
 import terradem.files
-import xdem
 
 
 def compare_idealized_interpolation(
@@ -152,7 +149,7 @@ def slope_vs_error(num_values: int | float = 5e6) -> None:
     plt.show()
 
 
-def get_error(n_values: int = int(5e6), overwrite=False):
+def get_error(n_values: int = int(5e6), overwrite: bool = False) -> None:  # noqa
 
     cache_path = "temp/error_vals.pkl"
 
@@ -273,7 +270,8 @@ def get_error(n_values: int = int(5e6), overwrite=False):
 
     model = sklearn.linear_model.RANSACRegressor(
         base_estimator=sklearn.pipeline.make_pipeline(
-            sklearn.preprocessing.Normalizer(), sklearn.preprocessing.PolynomialFeatures(2), sklearn.linear_model.LinearRegression()
+            sklearn.preprocessing.Normalizer(),
+            sklearn.preprocessing.PolynomialFeatures(2), sklearn.linear_model.LinearRegression()
         )
     ).fit(values[predictors], values["ddem_abs"])
 
@@ -281,7 +279,6 @@ def get_error(n_values: int = int(5e6), overwrite=False):
     print(score)
     """
 
-    import concurrent.futures
     import threading
 
     meta = datasets["ddem"].meta.copy()
@@ -290,7 +287,8 @@ def get_error(n_values: int = int(5e6), overwrite=False):
     # small_height = int((test_bounds.top - test_bounds.bottom) / datasets["ddem"].res[0])
     # small_width = int((test_bounds.right - test_bounds.left) / datasets["ddem"].res[1])
 
-    # meta.update({"transform": rio.transform.from_bounds(*test_bounds, small_width, small_height), "height": small_height, "width": small_width})
+    # meta.update({"transform": rio.transform.from_bounds(*test_bounds, small_width, small_height), "height": \
+    # small_height, "width": small_width})
 
     with rio.open("temp/error.tif", "w", **meta) as raster:
 
@@ -301,7 +299,7 @@ def get_error(n_values: int = int(5e6), overwrite=False):
 
         progress_bar = tqdm(total=len(windows), smoothing=0.1)
 
-        def process(window: rio.windows.Window):
+        def process(window: rio.windows.Window) -> None:
             with read_lock:
                 big_window = datasets["ddem"].window(*rio.windows.bounds(window, meta["transform"]))
                 data = np.vstack(
@@ -320,7 +318,8 @@ def get_error(n_values: int = int(5e6), overwrite=False):
                 raster.write(output, 1, window=window)
             progress_bar.update()
 
-        [process(window) for window in windows]
+        for window in windows:
+            process(window)
         # with concurrent.futures.ThreadPoolExecutor() as executor:
         #    list(executor.map(process, windows))
 
@@ -330,30 +329,89 @@ def get_error(n_values: int = int(5e6), overwrite=False):
         dataset.close()
 
 
-def terrain_error():
+def terrain_error() -> None:
 
     slope_ds = rio.open(terradem.files.TEMP_FILES["base_dem_slope"])
     curvature_ds = rio.open(terradem.files.TEMP_FILES["base_dem_curvature"])
-    glacier_mask_ds = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"])
+    stable_ground_ds = rio.open(terradem.files.INPUT_FILE_PATHS["stable_ground_mask"])
     ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
 
     windows = [w for ij, w in ddem_ds.block_windows()]
     random.shuffle(windows)
 
+    data = {"stable_ground": np.zeros((0,), dtype=bool)}
+    data.update({key: np.zeros((0,), dtype="float32") for key in ["ddem", "curvature", "slope"]})
+
     for window in windows[:3]:
-        data = {"glacier_mask"].astype(bool)
-        data = {
-            key: ds.read(window=window, masked=True).filled(0 if key == "glacier_mask" else np.nan)
-            for key, ds in [
-                ("ddem", ddem_ds),
-                ("curvature", curvature_ds),
-                ("glacier_mask", glacier_mask_ds),
-                ("slope", slope_ds),
-            ]
-        }
+        data["stable_ground"] = np.append(
+            data["stable_ground"], stable_ground_ds.read(window=window, masked=True).filled(0).astype(bool).ravel()
+        )
 
-        if any(np.all(~np.isfinite(data[key])) for key in data):
+        for key, dataset in [
+            ("ddem", ddem_ds),
+            ("curvature", curvature_ds),
+            ("stable_ground", stable_ground_ds),
+            ("slope", slope_ds),
+        ]:
+            data[key] = np.append(
+                data[key],
+                np.where(
+                    data["stable_ground"], dataset.read(window=window, masked=True).filled(np.nan), np.nan
+                ).ravel(),
+            )
+
+    if np.all(~data["stable_ground"]) or any(np.all(~np.isfinite(data[key])) for key in data):
+        raise ValueError("No single finite periglacial value found.")
+
+    custom_bins = [
+        np.unique(
+            np.concatenate(
+                [
+                    np.quantile(arr, np.linspace(start, stop, num))
+                    for start, stop, num in [(0, 0.95, 20), (0.96, 0.99, 5), (0.991, 1, 10)]
+                ]
+            )
+        )
+        for arr in [data["slope"], data["curvature"]]
+    ]
+    error_df = xdem.spatialstats.nd_binning(
+        values=data["ddem"],
+        list_var=[data[key] for key in ["curvature", "slope"]],
+        list_var_names=["curvature", "slope"],
+        statistics=["count", xdem.spatial_tools.nmad],
+        list_var_bins=custom_bins,
+    )
+    print(error_df[error_df["nd"] == 1])
+    error_model = xdem.spatialstats.interp_nd_binning(
+        df=error_df,
+        list_var_names=["slope", "maxc"],
+        min_count=30,
+    )
+    error = error_model((data["slope"], data["curvature"]))
+    # Standardize by the error, remove snow/ice values, and remove large outliers.
+    standardized_dh = np.where(~data["stable_ground"], np.nan, data["ddem"] / error)
+    standardized_dh[np.abs(standardized_dh) > (4 * xdem.spatial_tools.nmad(standardized_dh))] = np.nan
+
+    standardized_std = np.nanstd(standardized_dh)
+
+    norm_dh = standardized_dh / standardized_std
+
+    # This may fail due to the randomness of the analysis, so try to run this five times
+    for i in range(5):
+        try:
+            variogram = xdem.spatialstats.sample_empirical_variogram(
+                values=norm_dh.squeeze(),
+                gsd=ddem_ds.res[0],
+                subsample=50,
+                n_variograms=10,
+                runs=30,
+            )
+        except ValueError as exception:
+            if i == 4:
+                raise exception
             continue
+        break
 
-        
+    vgm_model, params = xdem.spatialstats.fit_sum_model_variogram(["Sph", "Sph"], variogram)
 
+    print(np.nanmean(error))

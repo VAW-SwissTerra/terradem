@@ -9,10 +9,10 @@ repos:
                 - id: check-merge-conflict
         # Fix common spelling mistakes
         - repo: https://github.com/codespell-project/codespell
-          rev: v2.0.0
+          rev: v2.1.0
           hooks:
                 - id: codespell
-                  args: [--ignore-words-list=hist]
+                  args: ["-L hist,nd"]
                   types_or: [python, rst, markdown]
 
         # Replace relative imports (e.g. 'from . import georaster' -> 'from geoutils import georaster')
