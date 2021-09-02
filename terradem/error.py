@@ -396,10 +396,10 @@ def terrain_error() -> None:
     print(window)
 
 
-    stable_ground = stable_ground_ds.read(window, masked=True).filled(0) == 1
-    slope = np.where(stable_ground, slope_ds.read(window, masked=True).filled(np.nan), np.nan)
-    curvature = np.where(stable_ground, curvature_ds.read(window, masked=True).filled(np.nan), np.nan)
-    ddem = np.where(stable_ground, ddem_ds.read(window, masked=True).filled(np.nan), np.nan)
+    stable_ground = stable_ground_ds.read(window=window, masked=True).filled(0) == 1
+    slope = np.where(stable_ground, slope_ds.read(window=window, masked=True).filled(np.nan), np.nan)
+    curvature = np.where(stable_ground, curvature_ds.read(window=window, masked=True).filled(np.nan), np.nan)
+    ddem = np.where(stable_ground, ddem_ds.read(window=window, masked=True).filled(np.nan), np.nan)
 
     error = error_model((slope, curvature))
 
