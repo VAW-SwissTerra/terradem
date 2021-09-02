@@ -389,6 +389,7 @@ def terrain_error() -> None:
         min_count=30,
     )
 
+    # Make a smaller test-area around Grosser Aletschgletscher
     left = 626897
     top = 108592
     window = rio.windows.Window(*ddem_ds.index(left, top, precision=0), 5000, 5000)
@@ -404,7 +405,7 @@ def terrain_error() -> None:
     meta = ddem_ds.meta.copy()
     meta.update({"transform": transform, "count": 1, "compress": "DEFLATE", "tiled": True})
     with rio.open("temp/temp_error.tif", "w", **meta) as raster:
-        raster.write(1, error)
+        raster.write(error, 1)
 
     for arr in [error] + list(data.values()):
         print(arr.shape)
