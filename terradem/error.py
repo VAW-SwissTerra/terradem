@@ -358,8 +358,9 @@ def terrain_error() -> None:
                     stable_ground, dataset.read(window=window, masked=True).filled(np.nan).ravel(), np.nan
                 ).ravel(),
             )
-        data["stable_ground"] = np.append(data["stable_ground"], stable_ground)
+        data["stable_ground"] = np.append(data["stable_ground"], stable_ground).astype(bool)
 
+    print(data["stable_ground"].dtype)
     if np.all(~data["stable_ground"]) or any(np.all(~np.isfinite(data[key])) for key in data):
         raise ValueError("No single finite periglacial value found.")
 
