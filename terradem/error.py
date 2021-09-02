@@ -342,9 +342,9 @@ def terrain_error() -> None:
     data = {"stable_ground": np.zeros((0,), dtype=bool)}
     data.update({key: np.zeros((0,), dtype="float32") for key in ["ddem", "curvature", "slope"]})
 
-    for window in windows[:3]:
+    for window in windows[:20]:
 
-        stable_ground = stable_ground_ds.read(window=window, masked=True).filled(0).astype(bool).ravel()
+        stable_ground = (stable_ground_ds.read(window=window, masked=True).filled(0) == 1).ravel()
 
         for key, dataset in [
             ("ddem", ddem_ds),
