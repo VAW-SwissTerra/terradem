@@ -342,7 +342,7 @@ def terrain_error() -> None:
     data = {"stable_ground": np.zeros((0,), dtype=bool)}
     data.update({key: np.zeros((0,), dtype="float32") for key in ["ddem", "curvature", "slope"]})
 
-    for window in windows[:20]:
+    for window in windows[:1000]:
 
         stable_ground = (stable_ground_ds.read(window=window, masked=True).filled(0) == 1).ravel()
 
@@ -400,15 +400,13 @@ def terrain_error() -> None:
     curvature = np.where(stable_ground, curvature_ds.read(window=window, masked=True).filled(np.nan), np.nan)
     ddem = np.where(stable_ground, ddem_ds.read(window=window, masked=True).filled(np.nan), np.nan)
 
-    error = error_model((slope, curvature)).reshape(slope.shape)
+    error = error_model((curvature, slope)).reshape(slope.shape)
 
     meta = ddem_ds.meta.copy()
     meta.update({"transform": transform, "count": 1, "compress": "DEFLATE", "tiled": True})
     with rio.open("temp/temp_error.tif", "w", **meta) as raster:
         raster.write(error.squeeze(), 1)
 
-    for arr in [error] + list(data.values()):
-        print(arr.shape)
     # Standardize by the error, remove snow/ice values, and remove large outliers.
     standardized_dh = np.where(~stable_ground, np.nan, ddem / error)
     standardized_dh[np.abs(standardized_dh) > (4 * xdem.spatial_tools.nmad(standardized_dh))] = np.nan
