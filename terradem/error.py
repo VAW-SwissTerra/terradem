@@ -389,19 +389,22 @@ def terrain_error() -> None:
         min_count=30,
     )
 
-    row_min, col_min = ddem_ds.index(626897, 108592, precision=0)
-
-    window = rio.windows.Window(col_min, row_min, 5000, 5000)
-
-    print(window)
-
+    left = 626897
+    top = 108592
+    window = rio.windows.Window(*ddem_ds.index(left, top, precision=0), 5000, 5000)
+    transform = rio.transform.from_origin(left, top, *ddem_ds.res)
 
     stable_ground = stable_ground_ds.read(window=window, masked=True).filled(0) == 1
     slope = np.where(stable_ground, slope_ds.read(window=window, masked=True).filled(np.nan), np.nan)
     curvature = np.where(stable_ground, curvature_ds.read(window=window, masked=True).filled(np.nan), np.nan)
     ddem = np.where(stable_ground, ddem_ds.read(window=window, masked=True).filled(np.nan), np.nan)
 
-    error = error_model((slope, curvature))
+    error = error_model((slope, curvature)).reshape(slope.shape)
+
+    meta = ddem_ds.meta.copy()
+    meta.update({"transform": transform, "count": 1, "compress": "DEFLATE", "tiled": True})
+    with rio.open("temp/temp_error.tif", "w", **meta) as raster:
+        raster.write(1, error)
 
     for arr in [error] + list(data.values()):
         print(arr.shape)
@@ -430,5 +433,9 @@ def terrain_error() -> None:
         break
 
     vgm_model, params = xdem.spatialstats.fit_sum_model_variogram(["Sph", "Sph"], variogram)
+    xdem.spatialstats.plot_vgm(variogram, xscale_range_split=[100, 1000, 10000], list_fit_fun=[vgm_model],
+                           list_fit_fun_label=['Standardized double-range variogram'])
+    plt.savefig("temp_variogram.jpg", dpi=600)
+
 
     print(np.nanmean(error))
