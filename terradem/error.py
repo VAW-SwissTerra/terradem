@@ -343,9 +343,8 @@ def terrain_error() -> None:
     data.update({key: np.zeros((0,), dtype="float32") for key in ["ddem", "curvature", "slope"]})
 
     for window in windows[:3]:
-        data["stable_ground"] = np.append(
-            data["stable_ground"], stable_ground_ds.read(window=window, masked=True).filled(0).astype(bool).ravel()
-        )
+        
+        stable_ground = stable_ground_ds.read(window=window, masked=True).filled(0).astype(bool).ravel()
 
         for key, dataset in [
             ("ddem", ddem_ds),
@@ -356,9 +355,10 @@ def terrain_error() -> None:
             data[key] = np.append(
                 data[key],
                 np.where(
-                    data["stable_ground"], dataset.read(window=window, masked=True).filled(np.nan), np.nan
+                    stable_ground, dataset.read(window=window, masked=True).filled(np.nan).ravel(), np.nan
                 ).ravel(),
             )
+        data["stable_ground"] = np.append(data["stable_ground"], stable_ground)
 
     if np.all(~data["stable_ground"]) or any(np.all(~np.isfinite(data[key])) for key in data):
         raise ValueError("No single finite periglacial value found.")
