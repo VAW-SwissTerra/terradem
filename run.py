@@ -99,6 +99,8 @@ def main() -> None:
         )
     """
 
+    terradem.error.terrain_error()
+
     # terradem.error.compare_idealized_interpolation()
 
     # terradem.massbalance.get_volume_change()
