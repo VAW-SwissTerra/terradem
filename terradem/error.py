@@ -403,7 +403,7 @@ def terrain_error() -> None:
     error = error_model((curvature, slope)).reshape(slope.shape)
 
     meta = ddem_ds.meta.copy()
-    meta.update({"transform": transform, "count": 1, "compress": "DEFLATE", "tiled": True})
+    meta.update({"transform": transform, "count": 1, "compress": "DEFLATE", "tiled": True, "width": window.width, "height": window.height})
     with rio.open("temp/temp_error.tif", "w", **meta) as raster:
         raster.write(error.squeeze(), 1)
 
@@ -430,6 +430,8 @@ def terrain_error() -> None:
                 raise exception
             continue
         break
+
+    print(variogram.to_string())
 
     vgm_model, params = xdem.spatialstats.fit_sum_model_variogram(["Sph", "Sph"], variogram)
     xdem.spatialstats.plot_vgm(variogram, xscale_range_split=[100, 1000, 10000], list_fit_fun=[vgm_model],
