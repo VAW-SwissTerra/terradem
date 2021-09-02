@@ -349,7 +349,6 @@ def terrain_error() -> None:
         for key, dataset in [
             ("ddem", ddem_ds),
             ("curvature", curvature_ds),
-            ("stable_ground", stable_ground_ds),
             ("slope", slope_ds),
         ]:
             data[key] = np.append(
