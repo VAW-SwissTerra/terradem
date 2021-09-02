@@ -405,7 +405,7 @@ def terrain_error() -> None:
     meta = ddem_ds.meta.copy()
     meta.update({"transform": transform, "count": 1, "compress": "DEFLATE", "tiled": True})
     with rio.open("temp/temp_error.tif", "w", **meta) as raster:
-        raster.write(error, 1)
+        raster.write(error.squeeze(), 1)
 
     for arr in [error] + list(data.values()):
         print(arr.shape)
