@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import random
 
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio as rio
+import shapely
 import xdem
 from tqdm import tqdm
 
@@ -460,3 +462,128 @@ def terrain_error() -> None:
     neffs.to_csv("temp/n_effective_samples.csv")
 
     print(np.nanmean(error))
+
+
+def _extrapolate_point(point_1: tuple[float, float], point_2: tuple[float, float]) -> tuple[float, float]:
+    """Create a point extrapoled in p1->p2 direction."""
+    # p1 = [p1.x, p1.y]
+    # p2 = [p2.x, p2.y]
+    extrap_ratio = 10
+    return (
+        point_1[0] + extrap_ratio * (point_2[0] - point_1[0]),
+        point_1[1] + extrap_ratio * (point_2[1] - point_1[1]),
+    )
+
+
+def _iter_geom(geometry: object) -> object:
+    """
+    Return an iterable of the geometry.
+
+    Use case: If 'geometry' is either a LineString or a MultiLineString. \
+            Only MultiLineString can be iterated over normally.
+    """
+    if "Multi" in geometry.geom_type or geometry.geom_type == "GeometryCollection":
+        return geometry
+
+    return [geometry]
+
+
+def glacier_outline_error() -> None:
+    """
+    Calculate the error of the glacier outlines by comparing with the sparse "reference" outlines.
+
+    There are two products in use:
+        - Digitized LK50 glacier polygons: (presumably) from the same source data, but their quality is unknown.
+        - Orthomosaic-drawn glacier outlines: Accurate in relation to the DEMs, but sparse (about 60/3000 glaciers)
+
+    First, 50+ lines are drawn between the centroid to points along the ortho-outlines.
+    Then, a duplicate line is cut from the farthest intersecting point of the LK50 polygon.
+
+    The length difference between the two versions of the lines are the output data.
+    """
+    # Load the data
+    lk50 = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
+    ortho_digitized = gpd.read_file(terradem.files.INPUT_FILE_PATHS["digitized_outlines"]).to_crs(lk50.crs)
+
+    # Filter the data so only the ones that exist in each respective dataset are kept.
+    ortho_digitized = ortho_digitized[ortho_digitized["sgi-id"].isin(lk50["SGI"])]
+    lk50 = lk50[lk50["SGI"].isin(ortho_digitized["sgi-id"])]
+
+    # Initialize the output residuals list, aka the length difference for each line.
+    residuals: list[float] = []
+    for _, ortho_subset in ortho_digitized.groupby("sgi-id", as_index=False):
+        lk50_subset = lk50.loc[lk50["SGI"] == ortho_subset["sgi-id"].iloc[0]]
+
+        # Extract the single or multiple polygon(s) from the LK50 data.
+        lk50_glacier = (
+            lk50_subset.geometry.values[0]
+            if lk50_subset.shape[0] == 1
+            else shapely.geometry.MultiPolygon(lk50_subset.geometry.values)
+        )
+        # Extract the single or multiple line(s) from the ortho-drawn data.
+        ortho_glacier = (
+            ortho_subset.geometry.values[0]
+            if ortho_subset.shape[0] == 1
+            else shapely.geometry.MultiLineString(ortho_subset.geometry.values)
+        )
+
+        centroid = lk50_glacier.centroid
+
+        # Draw points along the ortho-drawn line(s) to measure distances with.
+        points: list[shapely.geometry.Point] = []
+        for line in _iter_geom(ortho_glacier):
+            for i in np.linspace(0, line.length):
+                points.append(line.interpolate(i))
+
+        """
+        for poly in iter_geom(lk50_glacier):
+            plt.plot(*poly.exterior.xy, color="blue")
+        for line in iter_geom(ortho_glacier):
+            plt.plot(*line.xy, color="orange")
+        """
+
+        # Loop over all points, draw a long line, then cut the line to get and compare lengths
+        diffs = []
+        for point in points:
+            # This line will start at the centroid and end somewhere outside of the glacier
+            line = shapely.geometry.LineString([centroid, _extrapolate_point(centroid.coords[0], point.coords[0])])
+
+            intersections: list[shapely.geometry.Point] = []
+            # For each glacier polygon, find all point-intersections to the long line
+            for polyg in _iter_geom(lk50_glacier):
+                for p in _iter_geom(line.intersection(shapely.geometry.LineString(list(polyg.exterior.coords)))):
+                    if p.geom_type != "Point":
+                        continue
+                    intersections.append(p)
+
+            # Extract the intersecting point that is farthest away from the centroid.
+            farthest_lk50_intersection = sorted(
+                intersections,
+                key=lambda p: float(np.linalg.norm([p.x - centroid.x, p.y - centroid.y])),
+                reverse=True,
+            )[0]
+
+            # The ortho-drawn line is simply the original point to the centroid
+            ortho_line = shapely.geometry.LineString([centroid, point])
+            # The lk50 line is the farthest intersection point to the centroid.
+            lk50_line = shapely.geometry.LineString([centroid, farthest_lk50_intersection])
+
+            # The difference in length between this line will be the error.
+            diffs.append(ortho_line.length - lk50_line.length)
+
+            """
+            plt.plot(*cut_ortho.xy, color="red", linewidth=5)
+            plt.plot(*cut_lk50.xy, color="blue", linewidth=3)
+            """
+
+        residuals += diffs
+        """
+        plt.show()
+        """
+
+    # Print and plot the results.
+    nmad = xdem.spatialstats.nmad(residuals)
+    print(np.median(residuals), nmad)
+
+    plt.hist(residuals, bins=np.linspace(np.median(residuals) - 4 * nmad, np.median(residuals) + 4 * nmad, 50))
+    plt.show()

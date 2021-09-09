@@ -82,6 +82,7 @@ INPUT_FILE_PATHS = {
     "swisstopo_metadata": os.path.join(DIRECTORY_PATHS["results"], "metadata", "image_meta.csv"),
     "massbalance_index": os.path.join(DIRECTORY_PATHS["external"], "mass_balance", "massbalance_index.dat"),
     "lk50_outlines": os.path.join(DIRECTORY_PATHS["results"], "outlines", "lk50_outlines.shp"),
+    "lk50_centerlines": os.path.join(DIRECTORY_PATHS["results"], "outlines", "lk50_centrelines.shp"),
     "sgi_2016": os.path.join(DIRECTORY_PATHS["external"], "shapefiles", "SGI_2016_glaciers.shp"),
     "digitized_outlines": os.path.join(DIRECTORY_PATHS["manual_input"], "digitized_outlines.geojson"),
 }

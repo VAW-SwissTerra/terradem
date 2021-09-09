@@ -17,6 +17,9 @@ dependencies:
         - geoutils
         - richdem
           #- xdem
+        - pip:
+            - glacier_lengths
+
 
         # For developing
         - pre-commit
