@@ -342,7 +342,8 @@ def terrain_error() -> None:
     data = {"stable_ground": np.zeros((0,), dtype=bool)}
     data.update({key: np.zeros((0,), dtype="float32") for key in ["ddem", "curvature", "slope"]})
 
-    for window in windows[: int(0.2 * len(windows))]:
+    for window in tqdm(windows[: int(0.4 * len(windows))], desc="Reading data"):
+        # for window in windows[: 5000]:
 
         stable_ground = (stable_ground_ds.read(window=window, masked=True).filled(0) == 1).ravel()
 
@@ -386,10 +387,12 @@ def terrain_error() -> None:
     )
 
     # Make a smaller test-area around Grosser Aletschgletscher
-    left = 663000
-    top = 173000
-    window = rio.windows.Window(*ddem_ds.index(left, top, precision=0), 5000, 5000)
-    transform = rio.transform.from_origin(left, top, *ddem_ds.res)
+    # left = 663000
+    # top = 173000
+    # window = rio.windows.Window(*ddem_ds.index(left, top, precision=0), 5000, 5000)
+    # transform = rio.transform.from_origin(left, top, *ddem_ds.res)
+    transform = ddem_ds.transform
+    window = rio.windows.from_bounds(*ddem_ds.bounds, transform=transform)
 
     stable_ground = stable_ground_ds.read(window=window, masked=True).filled(0) == 1
     slope = slope_ds.read(window=window, masked=True).filled(np.nan)
@@ -409,7 +412,7 @@ def terrain_error() -> None:
             "height": window.height,
         }
     )
-    with rio.open("temp/temp_error.tif", "w", **meta) as raster:
+    with rio.open(terradem.files.TEMP_FILES["ddem_error"], "w", **meta) as raster:
         raster.write(error.squeeze(), 1)
 
     # Standardize by the error, remove snow/ice values, and remove large outliers.
@@ -435,8 +438,7 @@ def terrain_error() -> None:
                 raise exception
             continue
         break
-
-    print(variogram.to_string())
+    variogram[["exp", "err_exp"]] *= standardized_std
 
     vgm_model, params = xdem.spatialstats.fit_sum_model_variogram(["Sph", "Sph"], variogram)
     xdem.spatialstats.plot_vgm(
@@ -446,5 +448,15 @@ def terrain_error() -> None:
         list_fit_fun_label=["Standardized double-range variogram"],
     )
     plt.savefig("temp_variogram.jpg", dpi=600)
+
+    neffs = pd.Series(dtype=float)
+    for area in np.linspace(0.01e6, 100e6, num=100):
+        neff = xdem.spatialstats.neff_circ(area, [(params[0], "Sph", params[1]), (params[2], "Sph", params[3])])
+
+        neffs[area] = neff
+
+    error_df.to_csv("temp/error_df.csv")
+    variogram.to_csv("temp/variogram.csv")
+    neffs.to_csv("temp/n_effective_samples.csv")
 
     print(np.nanmean(error))

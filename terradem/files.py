@@ -46,6 +46,7 @@ TEMP_FILES = {
     "ddem_coreg_tcorr_interp_signal": os.path.join(TEMP_SUBDIRS["hypsometric_signals"], "SGI_national_normalized.csv"),
     "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
     "ddem_vs_ideal_error": os.path.join(TEMP_DIRECTORY, "ddem_vs_ideal_error.csv"),
+    "ddem_error": os.path.join(TEMP_DIRECTORY, "ddem_error.tif"),
 }
 
 TERRAIN_ATTRIBUTES = ["slope", "aspect", "curvature", "planform_curvature", "profile_curvature"]
