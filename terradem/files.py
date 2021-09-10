@@ -47,6 +47,7 @@ TEMP_FILES = {
     "lk50_rasterized": os.path.join(TEMP_DIRECTORY, "lk50_rasterized.tif"),
     "ddem_vs_ideal_error": os.path.join(TEMP_DIRECTORY, "ddem_vs_ideal_error.csv"),
     "ddem_error": os.path.join(TEMP_DIRECTORY, "ddem_error.tif"),
+    "n_effective_samples": os.path.join(TEMP_DIRECTORY, "n_effective_samples.csv"),
 }
 
 TERRAIN_ATTRIBUTES = ["slope", "aspect", "curvature", "planform_curvature", "profile_curvature"]

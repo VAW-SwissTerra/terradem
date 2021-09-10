@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio as rio
+import scipy.interpolate
 import shapely
 import xdem
 from tqdm import tqdm
@@ -585,5 +586,94 @@ def glacier_outline_error() -> None:
     nmad = xdem.spatialstats.nmad(residuals)
     print(np.median(residuals), nmad)
 
-    plt.hist(residuals, bins=np.linspace(np.median(residuals) - 4 * nmad, np.median(residuals) + 4 * nmad, 50))
-    plt.show()
+    return residuals
+
+    # plt.hist(residuals, bins=np.linspace(np.median(residuals) - 4 * nmad, np.median(residuals) + 4 * nmad, 50))
+    # plt.show()
+
+
+def get_measurement_error():
+    ddem_key = "ddem_coreg_tcorr_national-interp-extrap"
+
+    lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
+    error_ds = rio.open(terradem.files.TEMP_FILES["ddem_error"])
+    ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"])
+    ddem_nointerp_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
+    n_effective_samples = pd.read_csv(terradem.files.TEMP_FILES["n_effective_samples"], index_col=0, squeeze=True)
+    ddem_vs_ideal_error = pd.read_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"], index_col=0)[
+        ddem_key + "-ideal"
+    ]
+
+    neff_model = scipy.interpolate.interp1d(n_effective_samples.index, n_effective_samples, fill_value="extrapolate")
+
+    median_outline_uncertainty = abs(np.median(glacier_outline_error()))
+
+    # Temporary. Shuffle the outlines to have nicely representative subsets
+    lk50_outlines = lk50_outlines.iloc[np.random.permutation(lk50_outlines.shape[0])]
+
+    result = pd.DataFrame(dtype=float)
+    for sgi_id, outlines in tqdm(lk50_outlines.groupby("SGI", sort=False), total=lk50_outlines.shape[0], smoothing=0):
+        bounds = outlines.bounds.iloc[0]
+        bounds[["maxx", "maxy"]] += error_ds.res[0]
+        bounds -= bounds % error_ds.res[0]
+
+        window = rio.windows.from_bounds(*rio.coords.BoundingBox(*bounds), transform=error_ds.transform)
+        transform = rio.transform.from_origin(*bounds[["minx", "maxy"]], *error_ds.res)
+
+        error = error_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
+        ddem = ddem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
+        ddem_nointerp = ddem_nointerp_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
+
+        mask = rio.features.rasterize(outlines.geometry, out_shape=error.shape, fill=0, transform=transform) == 1
+
+        larger_mask = (
+            rio.features.rasterize(
+                outlines.geometry.buffer(median_outline_uncertainty), out_shape=error.shape, fill=0, transform=transform
+            )
+            == 1
+        )
+        smaller_mask = (
+            rio.features.rasterize(
+                outlines.geometry.buffer(-median_outline_uncertainty),
+                out_shape=error.shape,
+                fill=0,
+                transform=transform,
+            )
+            == 1
+        )
+
+        area = outlines.geometry.area.sum()
+
+        gaps_percent = 100 * (
+            1 - np.count_nonzero(np.isfinite(ddem_nointerp[mask])) / np.count_nonzero(np.isfinite(ddem[mask]))
+        )
+
+        if gaps_percent > 95 or np.count_nonzero(np.isfinite(error)) == 0:
+            continue
+
+        interpolation_px_error = (
+            abs(ddem_vs_ideal_error["median"]) + ddem_vs_ideal_error["nmad"] / neff_model(area)
+        ) * (gaps_percent / 100)
+
+        area_error = abs((np.nanmean(ddem[larger_mask]) - np.nanmean(ddem[smaller_mask])) / 2)
+
+        topographic_error = np.nanmean(error[mask]) / neff_model(area)
+
+        result.loc[sgi_id, ["dh", "area", "gaps_percent", "interp_err", "area_err", "topo_err"]] = (
+            np.nanmean(ddem[mask]),
+            area,
+            gaps_percent,
+            interpolation_px_error,
+            area_error,
+            topographic_error,
+        )
+
+        if result.shape[0] > 100:
+            break
+
+    result["dh_err"] = result[["interp_err", "area_err", "topo_err"]].sum(axis=1)
+    result["dv"] = result["dh"] * result["area"]
+    result["dv_err"] = result["dh_err"] * result["area"]
+
+    print(result.iloc[:10].to_string())
+    print(np.average(result["dh"], weights=result["area"]), np.average(result["dh_err"], weights=result["area"]))
