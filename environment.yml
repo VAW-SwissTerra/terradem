@@ -16,6 +16,8 @@ dependencies:
         - pytransform3d
         - geoutils
         - richdem
+        - scikit-image
+        # xdem should be installed, but is currently installed from source instead.
           #- xdem
         - pip:
             - glacier_lengths

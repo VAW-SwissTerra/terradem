@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import os
 import random
 
@@ -10,6 +11,7 @@ import pandas as pd
 import rasterio as rio
 import scipy.interpolate
 import shapely
+import skimage.measure
 import xdem
 from tqdm import tqdm
 
@@ -334,35 +336,40 @@ def get_error(n_values: int = int(5e6), overwrite: bool = False) -> None:  # noq
 
 def terrain_error() -> None:
 
+    # Open the datasets to use
     slope_ds = rio.open(terradem.files.TEMP_FILES["base_dem_slope"])
     curvature_ds = rio.open(terradem.files.TEMP_FILES["base_dem_curvature"])
     stable_ground_ds = rio.open(terradem.files.INPUT_FILE_PATHS["stable_ground_mask"])
     ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
 
-    windows = [w for ij, w in ddem_ds.block_windows()]
-    random.shuffle(windows)
+    progress_bar = tqdm(total=4, desc="Reading data")
 
-    data = {"stable_ground": np.zeros((0,), dtype=bool)}
-    data.update({key: np.zeros((0,), dtype="float32") for key in ["ddem", "curvature", "slope"]})
+    # Read the stable ground mask, where True will be stable and False will be unstable
+    data = {"stable_ground": stable_ground_ds.read(1, masked=True).filled(0) == 1}
+    progress_bar.update()
+    # data.update({key: np.zeros((0,), dtype="float32") for key in ["ddem", "curvature", "slope"]})
 
-    for window in tqdm(windows[: int(0.4 * len(windows))], desc="Reading data"):
-        # for window in windows[: 5000]:
+    # Read all of the other data and replace masked values with nan
+    for key, dataset in [("ddem", ddem_ds), ("curvature", curvature_ds), ("slope", slope_ds)]:
+        data[key] = dataset.read(1, masked=True).filled(np.nan)
+        progress_bar.update()
 
-        stable_ground = (stable_ground_ds.read(window=window, masked=True).filled(0) == 1).ravel()
+    progress_bar.close()
 
-        for key, dataset in [("ddem", ddem_ds), ("curvature", curvature_ds), ("slope", slope_ds)]:
-            data[key] = np.append(
-                data[key],
-                np.where(
-                    stable_ground,
-                    dataset.read(window=window, masked=True).filled(np.nan).ravel(),
-                    np.nan,
-                ).ravel(),
-            )
-        data["stable_ground"] = np.append(data["stable_ground"], stable_ground).astype(bool)
+    # Extract only the valid pixels (and later on subsample it)
+    print(f"{datetime.datetime.now()} Subsetting data")
+    data["valid_mask"] = data["stable_ground"] & np.logical_and.reduce(
+        [np.isfinite(data[key]) for key in data if key != "stable_ground"]
+    )
+    subset = {key: data[key][data["valid_mask"]] for key in data if key not in ["stable_ground", "valid_mask"]}
+    del data["valid_mask"]
 
-    if np.all(~data["stable_ground"]) or any(np.all(~np.isfinite(data[key])) for key in data):
-        raise ValueError("No single finite periglacial value found.")
+    # Subsample the data if its size is higher than the subsampling max
+    subsampling = int(1e6)
+    for key in subset:
+        if subset[key].shape[0] < subsampling:
+            continue
+        subset[key] = np.random.permutation(subset[key])[:subsampling]
 
     custom_bins = [
         np.unique(
@@ -373,16 +380,19 @@ def terrain_error() -> None:
                 ]
             )
         )
-        for arr in [data["slope"], data["curvature"]]
+        for arr in [subset["slope"], subset["curvature"]]
     ]
+    print(f"{datetime.datetime.now()} Performing ND-binning")
     error_df = xdem.spatialstats.nd_binning(
-        values=data["ddem"],
-        list_var=[data[key] for key in ["curvature", "slope"]],
+        values=subset["ddem"],
+        list_var=[subset[key] for key in ["curvature", "slope"]],
         list_var_names=["curvature", "slope"],
         statistics=["count", xdem.spatial_tools.nmad],
         list_var_bins=custom_bins,
     )
-    print(error_df[error_df["nd"] == 1])
+
+    del subset
+    print(error_df)
     error_model = xdem.spatialstats.interp_nd_binning(
         df=error_df,
         list_var_names=["curvature", "slope"],
@@ -397,42 +407,68 @@ def terrain_error() -> None:
     transform = ddem_ds.transform
     window = rio.windows.from_bounds(*ddem_ds.bounds, transform=transform)
 
-    stable_ground = stable_ground_ds.read(window=window, masked=True).filled(0) == 1
-    slope = slope_ds.read(window=window, masked=True).filled(np.nan)
-    curvature = curvature_ds.read(window=window, masked=True).filled(np.nan)
-    ddem = ddem_ds.read(window=window, masked=True).filled(np.nan)
+    # stable_ground = stable_ground_ds.read(window=window, masked=True).filled(0) == 1
+    # slope = slope_ds.read(window=window, masked=True).filled(np.nan)
+    # curvature = curvature_ds.read(window=window, masked=True).filled(np.nan)
+    # ddem = ddem_ds.read(window=window, masked=True).filled(np.nan)
 
-    error = error_model((curvature, slope)).reshape(slope.shape)
+    print(f"{datetime.datetime.now()} Generating error field.")
+    error = np.empty_like(data["slope"], dtype="float32")
+    for row in tqdm(np.arange(data["slope"].shape[0]), desc="Applying model"):
+        error[row, :] = error_model((data["curvature"][row, :], data["slope"][row, :]))
+
+    # error = error_model((data["curvature"], data["slope"])).reshape(data["slope"].shape)
+
+    # There's been a problem with the lower part of the raster being nodata.
+    assert np.isfinite(error[34180, 31822])
+
+    del data["curvature"]
+    del data["slope"]
 
     meta = ddem_ds.meta.copy()
     meta.update(
         {
             "transform": transform,
             "count": 1,
-            "compress": "DEFLATE",
-            "tiled": True,
+            "compress": "LZW",
             "width": window.width,
             "height": window.height,
+            "BIGTIFF": "YES",
+            "nodata": -9999,
         }
     )
+    print(f"{datetime.datetime.now()} Writing dDEM error raster")
     with rio.open(terradem.files.TEMP_FILES["ddem_error"], "w", **meta) as raster:
         raster.write(error.squeeze(), 1)
 
+    # Validate that the nodata issue does not exist (that particular pixel should have a value)
+    with rio.open(terradem.files.TEMP_FILES["ddem_error"]) as raster:
+        sample = raster.sample([(617523, 113297)]).__next__()[0]
+        assert sample != -9999
+
     # Standardize by the error, remove snow/ice values, and remove large outliers.
-    standardized_dh = np.where(~stable_ground, np.nan, ddem / error)
+    standardized_dh = np.where(~data["stable_ground"], np.nan, data["ddem"] / error)
     standardized_dh[np.abs(standardized_dh) > (4 * xdem.spatial_tools.nmad(standardized_dh))] = np.nan
 
+    del data
     standardized_std = np.nanstd(standardized_dh)
 
     norm_dh = standardized_dh / standardized_std
 
+    del standardized_dh
+
+    norm_dh = skimage.measure.block_reduce(norm_dh, (2, 2), func=np.nanmean)
+
+    # xcoords, ycoords = xdem.coreg._get_x_and_y_coords(norm_dh.shape, ddem_ds.transform)
+
     # This may fail due to the randomness of the analysis, so try to run this five times
+    print(f"{datetime.datetime.now()} Sampling empirical variogram")
     for i in range(5):
         try:
             variogram = xdem.spatialstats.sample_empirical_variogram(
-                values=norm_dh.squeeze(),
-                gsd=ddem_ds.res[0],
-                subsample=50,
+                values=norm_dh,
+                gsd=ddem_ds.res[0] * 2,
+                subsample=30,
                 n_variograms=10,
                 runs=30,
             )
@@ -489,7 +525,7 @@ def _iter_geom(geometry: object) -> object:
     return [geometry]
 
 
-def glacier_outline_error() -> None:
+def glacier_outline_error() -> np.ndarray:
     """
     Calculate the error of the glacier outlines by comparing with the sparse "reference" outlines.
 
@@ -592,7 +628,7 @@ def glacier_outline_error() -> None:
     # plt.show()
 
 
-def get_measurement_error():
+def get_measurement_error() -> None:
     ddem_key = "ddem_coreg_tcorr_national-interp-extrap"
 
     lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
@@ -652,12 +688,12 @@ def get_measurement_error():
             continue
 
         interpolation_px_error = (
-            abs(ddem_vs_ideal_error["median"]) + ddem_vs_ideal_error["nmad"] / neff_model(area)
+            abs(ddem_vs_ideal_error["median"]) + ddem_vs_ideal_error["nmad"] / np.sqrt(neff_model(area))
         ) * (gaps_percent / 100)
 
         area_error = abs((np.nanmean(ddem[larger_mask]) - np.nanmean(ddem[smaller_mask])) / 2)
 
-        topographic_error = np.nanmean(error[mask]) / neff_model(area)
+        topographic_error = np.nanmean(error[mask]) / np.sqrt(neff_model(area))
 
         result.loc[sgi_id, ["dh", "area", "gaps_percent", "interp_err", "area_err", "topo_err"]] = (
             np.nanmean(ddem[mask]),
