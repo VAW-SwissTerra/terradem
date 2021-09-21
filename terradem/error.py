@@ -76,7 +76,7 @@ def compare_idealized_interpolation(
             key: {"median": np.median(values), "nmad": xdem.spatial_tools.nmad(values)}
             for key, values in differences.items()
         }
-    )
+    ).T
 
     output.to_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"])
 
