@@ -74,7 +74,7 @@ def compare_idealized_interpolation(
             key: {"median": np.median(values), "nmad": xdem.spatial_tools.nmad(values)}
             for key, values in differences.items()
         }
-    )
+    ).T
 
     output.to_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"])
 
@@ -600,7 +600,7 @@ def get_measurement_error():
     ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"])
     ddem_nointerp_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
     n_effective_samples = pd.read_csv(terradem.files.TEMP_FILES["n_effective_samples"], index_col=0, squeeze=True)
-    ddem_vs_ideal_error = pd.read_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"], index_col=0)[
+    ddem_vs_ideal_error = pd.read_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"], index_col=0).T[
         ddem_key + "-ideal"
     ]
 
@@ -621,6 +621,8 @@ def get_measurement_error():
         transform = rio.transform.from_origin(*bounds[["minx", "maxy"]], *error_ds.res)
 
         error = error_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
+        if np.count_nonzero(np.isfinite(error)) == 0:
+            continue
         ddem = ddem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
         ddem_nointerp = ddem_nointerp_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
 
@@ -648,16 +650,12 @@ def get_measurement_error():
             1 - np.count_nonzero(np.isfinite(ddem_nointerp[mask])) / np.count_nonzero(np.isfinite(ddem[mask]))
         )
 
-        if gaps_percent > 95 or np.count_nonzero(np.isfinite(error)) == 0:
-            continue
 
-        interpolation_px_error = (
-            abs(ddem_vs_ideal_error["median"]) + ddem_vs_ideal_error["nmad"] / neff_model(area)
-        ) * (gaps_percent / 100)
+        interpolation_px_error = ddem_vs_ideal_error["nmad"] * (gaps_percent / 100)
 
         area_error = abs((np.nanmean(ddem[larger_mask]) - np.nanmean(ddem[smaller_mask])) / 2)
 
-        topographic_error = np.nanmean(error[mask]) / neff_model(area)
+        topographic_error = np.nanmean(error[mask]) / np.sqrt(neff_model(area))
 
         result.loc[sgi_id, ["dh", "area", "gaps_percent", "interp_err", "area_err", "topo_err"]] = (
             np.nanmean(ddem[mask]),
@@ -668,12 +666,69 @@ def get_measurement_error():
             topographic_error,
         )
 
-        if result.shape[0] > 100:
-            break
-
-    result["dh_err"] = result[["interp_err", "area_err", "topo_err"]].sum(axis=1)
+    result["dh_err"] = np.sqrt(np.square(result["interp_err"]) + np.square(result["topo_err"]) + np.square(result["area_err"]))
     result["dv"] = result["dh"] * result["area"]
     result["dv_err"] = result["dh_err"] * result["area"]
 
     print(result.iloc[:10].to_string())
     print(np.average(result["dh"], weights=result["area"]), np.average(result["dh_err"], weights=result["area"]))
+
+    result.to_csv("temp/glacier_wise_dh.csv")
+
+def total_error():
+    """Derive the total integrated error when averaging over the entire region."""
+    # Load the empirical variogram and (re-)estimate a double spherical model
+    variogram = pd.read_csv("temp/variogram.csv", index_col=0).rename(columns={"bins.1": "bins"})
+    _, params = xdem.spatialstats.fit_sum_model_variogram(["Sph", "Sph"], empirical_variogram=variogram)
+    ranges = params[np.arange(params.size) % 2 == 0]
+    sills = params[np.arange(params.size) % 2 != 0]
+
+    # Load a pre-calculated (circular) area-vs-neff relationship
+    n_effective_samples = pd.read_csv("temp/n_effective_samples.csv", index_col=0, squeeze=True)
+    # Construct a continuous model that takes areas as arguments.
+    neff_model = scipy.interpolate.interp1d(n_effective_samples.index, n_effective_samples, fill_value="extrapolate")
+
+    # Read glacier outlines (for the glacier location data)
+    outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"]).set_index("SGI")
+
+    # Load the glacier-wise (dH and) dH error table
+    glacier_wise_dh = pd.read_csv("temp/glacier_wise_dh.csv", index_col=0)
+
+    dv = (glacier_wise_dh["dh"] * glacier_wise_dh["area"]).sum()
+    dv_err = np.sqrt(np.sum(glacier_wise_dh["dh_err"] ** 2 * glacier_wise_dh["area"] ** 2))
+
+    specific_dh = dv / glacier_wise_dh["area"].sum()
+    dh_err = dv_err / glacier_wise_dh["area"].sum()
+
+    print(specific_dh, dh_err)
+
+    return
+
+    # Get the latitudes and longitudes for each glacier with values
+    latlons = outlines.loc[glacier_wise_dh.index].geometry.centroid.to_crs(4326)
+
+    errors = []
+    # For each glacier, integrate its error at different correlation ranges from the vgm model
+    for _, dh_df in glacier_wise_dh.iterrows():
+
+        # Back-track the individual pixel's error by multiplying with its effective sample nr.
+        pixel_wise_err = dh_df["dh_err"] * np.sqrt(neff_model(dh_df["area"]))
+
+        glacier_error = []
+        # For each range, calculate the respective integrated error for the glacier
+        for i in range(ranges.size):
+            neff = xdem.spatialstats.neff_circ(dh_df["area"], [(ranges[i], "Sph", sills[i])])
+            glacier_error.append(pixel_wise_err / np.sqrt(neff))
+
+        errors.append(glacier_error)
+
+    total = xdem.spatialstats.double_sum_covar(
+        errors,
+        ranges,
+        glacier_wise_dh["area"].values,
+        latlons.y,
+        latlons.x,
+        nproc=10,
+    )
+
+    print(total)
