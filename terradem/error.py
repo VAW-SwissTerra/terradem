@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import pickle
 import random
 
 import geopandas as gpd
@@ -13,7 +14,7 @@ import scipy.interpolate
 import shapely
 import skimage.measure
 import xdem
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 import terradem.files
 
@@ -713,3 +714,89 @@ def get_measurement_error() -> None:
 
     print(result.iloc[:10].to_string())
     print(np.average(result["dh"], weights=result["area"]), np.average(result["dh_err"], weights=result["area"]))
+
+
+def interpolation_error() -> None:
+    ddem_key = "ddem_coreg_tcorr_national-interp-extrap"
+
+    cache_filepath = "temp/interpolation_error_cache.pkl"
+
+    ddem_ds = rio.open(terradem.files.TEMP_FILES[ddem_key])
+    if not os.path.isfile(cache_filepath):
+        ddem_nointerp_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
+
+        print("Reading LK50 outlines")
+        lk50_rasterized = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"]).read(1, masked=True).filled(0)
+
+        print("Reading and subtracting dDEMs")
+        ddem_diff = ddem_ds.read(1, masked=True).filled(np.nan) - ddem_nointerp_ds.read(1, masked=True).filled(np.nan)
+
+        print("Reading base DEM")
+        dem = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"]).read(1, masked=True).filled(np.nan)
+        # Set all periglacial values to nan
+        dem[lk50_rasterized == 0] = np.nan
+
+        for i in tqdm(np.unique(lk50_rasterized)):
+            if i == 0:
+                continue
+            mask = lk50_rasterized == i
+            glacier_values = dem[mask]
+
+            minh = np.nanmin(glacier_values)
+            maxh = np.nanmax(glacier_values)
+
+            dem[mask] = (glacier_values - minh) / (maxh - minh)
+
+        del glacier_values, mask, lk50_rasterized
+
+        with open(cache_filepath, "wb") as outfile:
+            pickle.dump((ddem_diff, dem), outfile)
+    else:
+        with open(cache_filepath, "rb") as infile:
+            ddem_diff, dem = pickle.load(infile)
+
+    valid_mask = np.isfinite(ddem_diff) & np.isfinite(dem)
+
+    bins = np.r_[[-0.1], np.linspace(0, 1, 10).round(2), [1.1]]
+
+    categories = np.digitize(dem[valid_mask], bins)
+
+    values = pd.DataFrame()
+    for i in np.unique(categories):
+        diffs = ddem_diff[valid_mask][categories == i]
+        values.loc[pd.Interval(bins[i - 1] if i != 0 else 0, bins[i]), ["median", "mean", "nmad", "count"]] = (
+            np.median(diffs),
+            np.mean(diffs),
+            xdem.spatialstats.nmad(diffs),
+            diffs.size,
+        )
+
+    del ddem_diff
+
+    """
+    plt.errorbar(values.index.mid, values["mean"], values["nmad"])
+    plt.scatter(values.index.mid, values["mean"])
+    xlim = plt.gca().get_xlim()
+    plt.hlines(0, *xlim, colors="k", linestyles="--")
+    plt.xlim(*xlim)
+
+    plt.ylabel("dH - dH_ideal (m/a)")
+    plt.xlabel("Normalized glacier elevation")
+    plt.savefig("temp_fig.jpg", dpi=300)
+    """
+
+    error_model = scipy.interpolate.interp1d(
+        x=values.index.mid,
+        y=values["nmad"],
+        fill_value="extrapolate",
+    )
+
+    error_field = np.empty_like(dem)
+
+    for row in trange(error_field.shape[0], desc="Applying model", smoothing=0):
+        error_field[row, :] = error_model(dem[row, :])
+
+    meta = ddem_ds.meta.copy()
+    meta.update({"compress": "deflate", "tiled": True})
+    with rio.open("temp/interpolation_error.tif", "w", **meta) as raster:
+        raster.write(error_field, 1)
