@@ -16,6 +16,7 @@ import xdem
 from tqdm import tqdm
 
 import terradem.files
+import terradem.massbalance
 
 
 def compare_idealized_interpolation(
@@ -635,10 +636,13 @@ def get_measurement_error() -> None:
     error_ds = rio.open(terradem.files.TEMP_FILES["ddem_error"])
     ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"])
     ddem_nointerp_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
+    ddem_ideal_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap-ideal"])
     n_effective_samples = pd.read_csv(terradem.files.TEMP_FILES["n_effective_samples"], index_col=0, squeeze=True)
-    ddem_vs_ideal_error = pd.read_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"], index_col=0).T[
-        ddem_key + "-ideal"
-    ]
+
+    temporal_error_model = terradem.massbalance.temporal_corr_error_model()
+    #ddem_vs_ideal_error = pd.read_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"], index_col=0).T[
+    #    ddem_key + "-ideal"
+    #]
 
     neff_model = scipy.interpolate.interp1d(n_effective_samples.index, n_effective_samples, fill_value="extrapolate")
 
@@ -661,6 +665,7 @@ def get_measurement_error() -> None:
             continue
         ddem = ddem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
         ddem_nointerp = ddem_nointerp_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
+        ddem_ideal = ddem_ideal_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
 
         mask = rio.features.rasterize(outlines.geometry, out_shape=error.shape, fill=0, transform=transform) == 1
 
@@ -686,28 +691,35 @@ def get_measurement_error() -> None:
             1 - np.count_nonzero(np.isfinite(ddem_nointerp[mask])) / np.count_nonzero(np.isfinite(ddem[mask]))
         )
 
-
-        interpolation_px_error = ddem_vs_ideal_error["nmad"] * (gaps_percent / 100)
+        ideal_ddem_nmad = 0.0 if gaps_percent == 100.0 else xdem.spatialstats.nmad((ddem_nointerp - ddem_ideal)[mask])
 
         area_error = abs((np.nanmean(ddem[larger_mask]) - np.nanmean(ddem[smaller_mask])) / 2)
 
         topographic_error = np.nanmean(error[mask]) / np.sqrt(neff_model(area))
 
-        result.loc[sgi_id, ["dh", "area", "gaps_percent", "interp_err", "area_err", "topo_err"]] = (
-            np.nanmean(ddem[mask]),
+        diff = np.nanmean(ddem[mask])
+
+        temporal_error = diff * temporal_error_model(np.mean([bounds["minx"], bounds["maxx"]]), np.mean([bounds["miny"], bounds["maxy"]]))
+
+        result.loc[sgi_id, ["dh", "area", "gaps_percent", "ideal_ddem_nmad", "area_err", "topo_err", "temporal_error"]] = (
+            diff,
             area,
             gaps_percent,
-            interpolation_px_error,
+            ideal_ddem_nmad,
             area_error,
             topographic_error,
+            temporal_error
         )
 
-    result["dh_err"] = np.sqrt(np.square(result["interp_err"]) + np.square(result["topo_err"]) + np.square(result["area_err"]))
-    result["dv"] = result["dh"] * result["area"]
-    result["dv_err"] = result["dh_err"] * result["area"]
+    #result["dh_err"] = np.sqrt(np.square(result["interp_err"]) + np.square(result["topo_err"]) + np.square(result["area_err"]))
+    #result["dv"] = result["dh"] * result["area"]
+    #result["dv_err"] = result["dh_err"] * result["area"]
 
     print(result.iloc[:10].to_string())
-    print(np.average(result["dh"], weights=result["area"]), np.average(result["dh_err"], weights=result["area"]))
+    #print(np.average(result["dh"], weights=result["area"]), np.average(result["dh_err"], weights=result["area"]))
+
+    plt.scatter(result["gaps_percent"], result["ideal_ddem_nmad"], alpha=0.3)
+    plt.show()
 
     result.to_csv("temp/glacier_wise_dh.csv")
 

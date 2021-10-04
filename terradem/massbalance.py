@@ -1,7 +1,10 @@
 """Tools to calculate mass balance and convert appropriately from volume."""
 from __future__ import annotations
 
-from typing import Callable
+import json
+import os
+import pathlib
+from typing import Any, Callable
 
 import geopandas as gpd
 import numpy as np
@@ -119,3 +122,57 @@ def get_volume_change() -> None:
     print(output)
 
     output.to_csv("temp/volume_change.csv")
+
+
+def get_corrections():
+    standard_start_year = 1930
+    standard_end_year = 2020
+    mb_index = read_mb_index().cumsum()
+
+    dirpath = pathlib.Path(terradem.files.TEMP_SUBDIRS["tcorr_meta_coreg"])
+
+    data_list: list[dict[str, Any]] = []
+    for filepath in dirpath.iterdir():
+        with open(filepath) as infile:
+            data = json.load(infile)
+
+        data["station"] = filepath.stem
+
+        data_list.append(data)
+
+    corrections = pd.DataFrame(data_list).set_index("station")
+    corrections["start_date"] = pd.to_datetime(corrections["start_date"])
+
+    for zone, data in corrections.groupby("sgi_zone", as_index=False):
+        corrections.loc[data.index, "masschange_standard"] = (
+            mb_index.loc[standard_start_year, zone] - mb_index.loc[standard_end_year, zone]
+        )
+
+        corrections.loc[data.index, "masschange_actual"] = (
+            mb_index.loc[data["start_date"].dt.year.values, zone].values
+            - mb_index.loc[data["end_year"].astype(int), zone].values
+        )
+
+    def get_masschanges(easting: float, northing: float) -> tuple[float, float]:
+        distances = np.argmin(
+            np.linalg.norm([corrections["easting"] - easting, corrections["northing"] - northing], axis=0)
+        )
+        return corrections.iloc[distances]["masschange_standard"], corrections.iloc[distances]["masschange_actual"]
+
+    return get_masschanges
+
+
+def temporal_corr_error_model():
+    stochastic_yearly_error = 0.2  # m/a w.e.
+
+    masschange_model = get_corrections()
+
+    def error_model(easting: float, northing: float):
+
+        standard, actual = masschange_model(easting, northing)
+
+        return np.sqrt(
+            (((2 * stochastic_yearly_error ** 2) / standard ** 2) + ((2 * stochastic_yearly_error ** 2) / actual ** 2))
+            * (standard / actual) ** 2
+        )
+    return error_model
