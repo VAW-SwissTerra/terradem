@@ -9,6 +9,8 @@ import terradem.interpolation
 import terradem.massbalance
 import terradem.outlines
 import terradem.utilities
+import numpy as np
+from tqdm import tqdm
 
 
 def main() -> None:
@@ -57,6 +59,19 @@ def main() -> None:
             overwrite=False,
             attribute=attribute,
         )
+
+    for min_coverage in tqdm(np.linspace(0, 0.5, 5), smoothing=0):
+        try:
+            terradem.interpolation.subregion_normalized_hypsometric(
+                ddem_filepath=terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+                output_filepath=f"temp/interp_sensitivity/interp_{str(min_coverage).replace('.', '-')}.tif",
+                output_filepath_ideal=f"temp/interp_sensitivity/interp_{str(min_coverage).replace('.', '-')}_ideal.tif",
+                level=-1,
+                min_coverage=min_coverage,
+            )
+        except Exception as e:
+            print(e)
+
 
     """
     # At least 20% of the glaciers have to be covered by pixels for norm-regional-hypso
