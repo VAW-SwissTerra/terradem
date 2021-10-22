@@ -20,6 +20,7 @@ def normalized_regional_hypsometric(
     output_filepath: str,
     output_ideal_filepath: str,
     output_signal_filepath: str,
+    base_dem_filepath: str = terradem.files.INPUT_FILE_PATHS["base_dem"],
     min_coverage: float = 0.1,
     signal: pd.DataFrame | None = None,
     glacier_indices_filepath: str = terradem.files.TEMP_FILES["lk50_rasterized"],
@@ -34,20 +35,19 @@ def normalized_regional_hypsometric(
     :param min_coverage: The minimum fractional coverage of a glacier to interpolate. Defaults to 10%.
     """
     glacier_indices_ds = rio.open(glacier_indices_filepath)
-    ref_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
+    ref_dem_ds = rio.open(base_dem_filepath)
     ddem_ds = rio.open(ddem_filepath)
 
-    bounds = rio.coords.BoundingBox(left=626790, top=176570, right=644890, bottom=135150)
-    bounds = ddem_ds.bounds  # Remove this to validate on a testing subset.
+    #bounds = rio.coords.BoundingBox(left=626790, top=176570, right=644890, bottom=135150)
+    #bounds = ddem_ds.bounds  # Remove this to validate on a testing subset.
 
     if verbose:
         print("Reading data")
-    ddem = ddem_ds.read(1, masked=True, window=ddem_ds.window(*bounds)).filled(np.nan)
-    ref_dem = ref_dem_ds.read(1, masked=True, window=ref_dem_ds.window(*bounds)).filled(1000)
+    ddem = ddem_ds.read(1, masked=True).filled(np.nan)
+    ref_dem = ref_dem_ds.read(1, masked=True).filled(1000)
     glacier_indices = glacier_indices_ds.read(
         1,
-        masked=True,
-        window=glacier_indices_ds.window(*bounds),
+        masked=True
     ).filled(0)
 
     if signal is None:
@@ -76,7 +76,7 @@ def normalized_regional_hypsometric(
             "tiled": True,
             "height": ddem.shape[0],
             "width": ddem.shape[1],
-            "transform": rio.transform.from_bounds(*bounds, width=ddem.shape[1], height=ddem.shape[0]),
+            "transform": ddem_ds.transform,
         }
     )
     with rio.open(output_filepath, "w", **meta) as raster:
@@ -245,11 +245,11 @@ def subregion_normalized_hypsometric(
         )
 
 
-def regional_hypsometric(ddem_filepath: str, output_filepath: str, output_filepath_ideal: str) -> None:
+def regional_hypsometric(ddem_filepath: str, output_filepath: str, output_filepath_ideal: str, glacier_indices_filepath: str = terradem.files.TEMP_FILES["lk50_rasterized"], base_dem_filepath: str = terradem.files.INPUT_FILE_PATHS["base_dem"]) -> None:
 
     ddem_ds = rio.open(ddem_filepath)
-    glacier_indices_ds = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"])
-    base_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
+    glacier_indices_ds = rio.open(glacier_indices_filepath)
+    base_dem_ds = rio.open(base_dem_filepath)
 
     ddem = ddem_ds.read(1, masked=True).filled(np.nan)
     base_dem = base_dem_ds.read(1, masked=True).filled(np.nan)
