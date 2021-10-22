@@ -7,6 +7,7 @@ import pathlib
 import pickle
 import random
 import threading
+import pathlib
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -851,71 +852,6 @@ def interpolation_error() -> None:
     meta.update({"compress": "deflate", "tiled": True})
     with rio.open("temp/interpolation_error.tif", "w", **meta) as raster:
         raster.write(error_field, 1)
-
-
-def interpolation_independence():
-    ddem_key = "ddem_coreg_tcorr_national-interp-extrap-ideal"
-    ddem_ds = rio.open(terradem.files.TEMP_FILES[ddem_key])
-    ddem_nointerp_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
-    with tqdm(total=3, desc="Reading data", smoothing=0) as progress_bar:
-        lk50_rasterized = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"]).read(1, masked=True).filled(0)
-        progress_bar.update()
-
-        not_stable_ground = lk50_rasterized != 0
-        ddem_interp = ddem_ds.read(1, masked=True).filled(np.nan)[not_stable_ground]
-        assert not np.all(np.isnan(ddem_interp))
-        progress_bar.update()
-        ddem_nointerp = ddem_nointerp_ds.read(1, masked=True).filled(np.nan)[not_stable_ground]
-        assert not np.all(np.isnan(ddem_nointerp))
-        progress_bar.update()
-    lk50_rasterized = lk50_rasterized[not_stable_ground]
-
-    glacier_indices = np.unique(lk50_rasterized)
-
-    array_indices = np.arange(glacier_indices.size)
-
-    output = pd.DataFrame(columns=["fraction", "full_nmad", "squared_sum_nmad", "n_pixels", "n_void_pixels"])
-
-    n_fractions = 10
-    n_iterations = 30
-
-    progress_bar = tqdm(total=n_fractions * n_iterations, smoothing=0)
-
-    for fraction in np.round(np.linspace(0.1, 1, n_fractions), 2):
-        for _ in range(n_iterations):
-            glacier_subset = np.random.choice(glacier_indices, size=int(fraction * glacier_indices.size))
-
-            subset = np.isin(lk50_rasterized, glacier_subset)
-
-            ddem_nointerp_sub = ddem_nointerp[subset]
-            ddem_interp_sub = ddem_interp[subset]
-            glacier_indices_sub = lk50_rasterized[subset]
-
-            ddem_diff = ddem_nointerp_sub - ddem_interp_sub
-            full_nmad = xdem.spatialstats.nmad(ddem_diff)
-
-            pixel_counts = []
-            nmads = []
-            for i, count in np.vstack(np.unique(glacier_indices_sub, return_counts=True)).T:
-                pixel_counts.append(count)
-                nmads.append(xdem.spatialstats.nmad(ddem_diff[glacier_indices_sub == i]))
-
-            squared_sum_nmad = np.sqrt(np.nansum(np.square(nmads) * np.square(pixel_counts))) / np.nansum(pixel_counts)
-
-            output.loc[output.shape[0]] = (
-                fraction,
-                full_nmad,
-                squared_sum_nmad,
-                glacier_indices_sub.size,
-                np.count_nonzero(~np.isfinite(ddem_nointerp_sub)),
-            )
-
-            progress_bar.update()
-    progress_bar.close()
-
-    output.to_csv("temp/interpolation_independence.csv")
-
-    print(output)
 
 
 def total_error() -> None:
