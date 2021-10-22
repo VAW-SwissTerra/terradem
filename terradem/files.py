@@ -48,6 +48,9 @@ TEMP_FILES = {
     "ddem_vs_ideal_error": os.path.join(TEMP_DIRECTORY, "ddem_vs_ideal_error.csv"),
     "ddem_error": os.path.join(TEMP_DIRECTORY, "ddem_error.tif"),
     "n_effective_samples": os.path.join(TEMP_DIRECTORY, "n_effective_samples.csv"),
+    "topographic_error_df": os.path.join(TEMP_DIRECTORY, "topographic_error_df.csv"),
+    "glacier_wise_dh": os.path.join(TEMP_DIRECTORY, "glacier_wise_dh.csv"),
+    "topographic_error_variogram": os.path.join(TEMP_DIRECTORY, "topographic_error_variogram.csv"),
 }
 
 TERRAIN_ATTRIBUTES = ["slope", "aspect", "curvature", "planform_curvature", "profile_curvature"]

@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import re
 
-
 def list_files(directory: str, pattern: str = ".*") -> list[str]:
     """
     List all files in a directory and return their absolute paths.

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import concurrent.futures
 import datetime
 import os
+import pathlib
 import pickle
 import random
+import threading
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -13,11 +16,11 @@ import rasterio as rio
 import scipy.interpolate
 import shapely
 import skimage.measure
-import xdem
 from tqdm import tqdm, trange
 
 import terradem.files
 import terradem.massbalance
+import xdem
 
 
 def compare_idealized_interpolation(
@@ -373,31 +376,33 @@ def terrain_error() -> None:
             continue
         subset[key] = np.random.permutation(subset[key])[:subsampling]
 
+    variable_names = ["curvature", "slope"]
     custom_bins = [
         np.unique(
             np.concatenate(
                 [
-                    np.nanquantile(arr, np.linspace(start, stop, num))
+                    np.nanquantile(subset[name], np.linspace(start, stop, num))
                     for start, stop, num in [(0, 0.95, 20), (0.96, 0.99, 5), (0.991, 1, 10)]
                 ]
             )
         )
-        for arr in [subset["slope"], subset["curvature"]]
+        for name in variable_names
     ]
     print(f"{datetime.datetime.now()} Performing ND-binning")
     error_df = xdem.spatialstats.nd_binning(
         values=subset["ddem"],
-        list_var=[subset[key] for key in ["curvature", "slope"]],
-        list_var_names=["curvature", "slope"],
+        list_var=[subset[key] for key in variable_names],
+        list_var_names=variable_names,
         statistics=["count", xdem.spatial_tools.nmad],
         list_var_bins=custom_bins,
     )
+    error_df.to_csv(terradem.files.TEMP_FILES["topographic_error_df"])
 
     del subset
     print(error_df)
     error_model = xdem.spatialstats.interp_nd_binning(
         df=error_df,
-        list_var_names=["curvature", "slope"],
+        list_var_names=variable_names,
         min_count=30,
     )
 
@@ -496,8 +501,7 @@ def terrain_error() -> None:
 
         neffs[area] = neff
 
-    error_df.to_csv("temp/error_df.csv")
-    variogram.to_csv("temp/variogram.csv")
+    variogram.to_csv(terradem.files.TEMP_FILES["topographic_error_variogram"])
     neffs.to_csv("temp/n_effective_samples.csv")
 
     print(np.nanmean(error))
@@ -634,18 +638,22 @@ def get_measurement_error() -> None:
     ddem_key = "ddem_coreg_tcorr_national-interp-extrap"
 
     lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
-    error_ds = rio.open(terradem.files.TEMP_FILES["ddem_error"])
+    error_ds = rio.open("temp/stable_ground_error.tif")
     ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"])
     ddem_nointerp_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
     ddem_ideal_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap-ideal"])
     n_effective_samples = pd.read_csv(terradem.files.TEMP_FILES["n_effective_samples"], index_col=0, squeeze=True)
 
     temporal_error_model = terradem.massbalance.temporal_corr_error_model()
-    #ddem_vs_ideal_error = pd.read_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"], index_col=0).T[
-    #    ddem_key + "-ideal"
-    #]
+
+    # TODO: Refer to the external analysis in a better way than hardcoding like this.
+    interpolation_variogram = [(2.82930058e02, "Sph", 8.80780720e-02), (2.11817045e03, "Sph", 3.20393346e-01)]
+    ddem_vs_ideal_error = pd.read_csv(terradem.files.TEMP_FILES["ddem_vs_ideal_error"], index_col=0).T[
+        ddem_key + "-ideal"
+    ]
 
     neff_model = scipy.interpolate.interp1d(n_effective_samples.index, n_effective_samples, fill_value="extrapolate")
+    interp_neff_model = lambda a: xdem.spatialstats.neff_circ(a, interpolation_variogram)
 
     median_outline_uncertainty = abs(np.median(glacier_outline_error()))
 
@@ -662,14 +670,13 @@ def get_measurement_error() -> None:
         transform = rio.transform.from_origin(*bounds[["minx", "maxy"]], *error_ds.res)
 
         error = error_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
-        if np.count_nonzero(np.isfinite(error)) == 0:
-            continue
+        # if np.count_nonzero(np.isfinite(error[mask])) == 0:
+        #    continue
         ddem = ddem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
         ddem_nointerp = ddem_nointerp_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
-        ddem_ideal = ddem_ideal_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
+        # ddem_ideal = ddem_ideal_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
 
         mask = rio.features.rasterize(outlines.geometry, out_shape=error.shape, fill=0, transform=transform) == 1
-
         larger_mask = (
             rio.features.rasterize(
                 outlines.geometry.buffer(median_outline_uncertainty), out_shape=error.shape, fill=0, transform=transform
@@ -688,41 +695,76 @@ def get_measurement_error() -> None:
 
         area = outlines.geometry.area.sum()
 
-        gaps = ~np.isfinite(ddem_nointerp[mask])
         gaps_percent = 100 * (
             1 - np.count_nonzero(np.isfinite(ddem_nointerp[mask])) / np.count_nonzero(np.isfinite(ddem[mask]))
         )
 
-        ideal_ddem_nmad = 0.0 if gaps_percent == 100.0 else xdem.spatialstats.nmad((ddem_nointerp - ddem_ideal)[mask])
+        # ideal_ddem_nmad = 0.0 if gaps_percent == 100.0 else xdem.spatialstats.nmad((ddem_nointerp - ddem_ideal)[mask])
+        interp_err = (gaps_percent / 100) * (
+            np.abs(ddem_vs_ideal_error["median"]) + ddem_vs_ideal_error["nmad"] / np.sqrt(interp_neff_model(area))
+        )
 
         area_error = abs((np.nanmean(ddem[larger_mask]) - np.nanmean(ddem[smaller_mask])) / 2)
 
-        topographic_error = np.nanmean(error[mask]) / np.sqrt(neff_model(area))
+        topographic_error = 0.0 if gaps_percent == 100 else np.nanmean(error[mask]) / np.sqrt(neff_model(area))
 
         diff = np.nanmean(ddem[mask])
 
-        temporal_error = diff * temporal_error_model(np.mean([bounds["minx"], bounds["maxx"]]), np.mean([bounds["miny"], bounds["maxy"]]))
+        temporal_error = abs(diff) * temporal_error_model(
+            np.mean([bounds["minx"], bounds["maxx"]]), np.mean([bounds["miny"], bounds["maxy"]])
+        )
 
-        result.loc[sgi_id, ["dh", "area", "gaps_percent", "ideal_ddem_nmad", "area_err", "topo_err", "temporal_error"]] = (
+        result.loc[sgi_id, ["dh", "area", "gaps_percent", "interp_err", "area_err", "topo_err", "time_err"]] = (
             diff,
             area,
             gaps_percent,
-            ideal_ddem_nmad,
+            interp_err,
             area_error,
             topographic_error,
-            temporal_error
+            temporal_error,
         )
-    #result["dh_err"] = np.sqrt(np.square(result["interp_err"]) + np.square(result["topo_err"]) + np.square(result["area_err"]))
-    #result["dv"] = result["dh"] * result["area"]
-    #result["dv_err"] = result["dh_err"] * result["area"]
 
-    print(result.iloc[:10].to_string())
-    #print(np.average(result["dh"], weights=result["area"]), np.average(result["dh_err"], weights=result["area"]))
+    result["dh_err"] = np.sqrt((result[["interp_err", "topo_err", "area_err", "time_err"]] ** 2).sum(axis=1))
+    # result["dv"] = result["dh"] * result["area"]
+    # result["dv_err"] = result["dh_err"] * result["area"]
 
-    plt.scatter(result["gaps_percent"], result["ideal_ddem_nmad"], alpha=0.3)
-    plt.show()
+    weighted_avg = pd.Series(np.average(result, axis=0, weights=result["area"]), result.columns)
 
-    result.to_csv("temp/glacier_wise_dh.csv")
+    regional_err = pd.Series(
+        {
+            "area_err": weighted_avg["area_err"],
+            "time_err": weighted_avg["time_err"],
+            "topo_err": (weighted_avg["topo_err"] * np.sqrt(neff_model(weighted_avg["area"]))) / np.sqrt(
+        neff_model(result["area"].sum())
+    ),
+            "interp_err": (weighted_avg["gaps_percent"] / 100) * (
+        + ddem_vs_ideal_error["nmad"] / np.sqrt(interp_neff_model(result["area"].sum()))
+    ),
+        }
+    )
+    regional_err["dh_err"] = np.sqrt((regional_err ** 2).sum())
+    regional_err[["dh_err", "interp_err"]] += (weighted_avg["gaps_percent"] / 100) * abs(ddem_vs_ideal_error["median"])
+
+    pd.set_option("display.float_format", lambda x: "%.4f" % x)
+    print("Weighted average")
+    print(weighted_avg)
+    print("\n\nRegional error")
+    print(regional_err)
+
+    result.sort_values("area", inplace=True)
+
+    midpoint = result.shape[0] // 2
+
+    print("\n\nSmallest")
+    print(result.iloc[:5].to_string())
+    print("\n\nMiddle")
+    print(result.iloc[midpoint : midpoint + 5].to_string())
+    print("\n\nLargest")
+    print(result.iloc[-5:].to_string())
+
+    # print(np.average(result[], weights=result["area"]), np.average(result["dh_err"], weights=result["area"]))
+
+    result.to_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
 
 
 def interpolation_error() -> None:
@@ -819,7 +861,6 @@ def interpolation_independence():
         lk50_rasterized = rio.open(terradem.files.TEMP_FILES["lk50_rasterized"]).read(1, masked=True).filled(0)
         progress_bar.update()
 
-
         not_stable_ground = lk50_rasterized != 0
         ddem_interp = ddem_ds.read(1, masked=True).filled(np.nan)[not_stable_ground]
         assert not np.all(np.isnan(ddem_interp))
@@ -833,7 +874,7 @@ def interpolation_independence():
 
     array_indices = np.arange(glacier_indices.size)
 
-    output = pd.DataFrame(columns=["fraction", "full_nmad", "squared_sum_nmad"])
+    output = pd.DataFrame(columns=["fraction", "full_nmad", "squared_sum_nmad", "n_pixels", "n_void_pixels"])
 
     n_fractions = 10
     n_iterations = 30
@@ -845,7 +886,7 @@ def interpolation_independence():
             glacier_subset = np.random.choice(glacier_indices, size=int(fraction * glacier_indices.size))
 
             subset = np.isin(lk50_rasterized, glacier_subset)
-            
+
             ddem_nointerp_sub = ddem_nointerp[subset]
             ddem_interp_sub = ddem_interp[subset]
             glacier_indices_sub = lk50_rasterized[subset]
@@ -861,15 +902,21 @@ def interpolation_independence():
 
             squared_sum_nmad = np.sqrt(np.nansum(np.square(nmads) * np.square(pixel_counts))) / np.nansum(pixel_counts)
 
-            output.loc[output.shape[0]] = fraction, full_nmad, squared_sum_nmad
+            output.loc[output.shape[0]] = (
+                fraction,
+                full_nmad,
+                squared_sum_nmad,
+                glacier_indices_sub.size,
+                np.count_nonzero(~np.isfinite(ddem_nointerp_sub)),
+            )
 
             progress_bar.update()
     progress_bar.close()
 
-
     output.to_csv("temp/interpolation_independence.csv")
 
     print(output)
+
 
 def total_error() -> None:
     """Derive the total integrated error when averaging over the entire region."""
@@ -928,3 +975,79 @@ def total_error() -> None:
     )
 
     print(total)
+
+
+def ddem_error():
+    """
+    Generate an error field by assigning the NMAD of the stable ground offsets for each pixel.
+
+    For overlapping dDEMs, the squared sum of all overlapping dDEM errors is assigned.
+    """
+    # Extract the target metadata and bounds from the dDEM mosaic
+    with rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"]) as raster:
+        target_bounds = raster.bounds
+        target_meta = raster.meta
+
+    # Get a list of all paths to the individual dDEMs
+    ddem_filepaths = [
+        fp
+        for fp in pathlib.Path(terradem.files.TEMP_SUBDIRS["ddems_coreg_tcorr"]).iterdir()
+        if str(fp).endswith(".tif")
+    ]
+    # Load the precalculated dDEM statistics and extract the stable ground NMAD for each dDEM
+    ddem_metadata = pd.read_csv(
+        terradem.files.TEMP_FILES["ddem_stats"], index_col=["station", "product", "surface"]
+    ).loc[(slice(None), "coreg", "stable"), "nmad"]
+
+    # Instantiate the output error array and the dDEMs-per-pixel count raster
+    error_arr = np.zeros((target_meta["height"], target_meta["width"]), "float32")
+    counts = np.zeros(error_arr.shape, "uint8")
+
+    write_lock = threading.Lock()
+    progress_bar = tqdm(total=len(ddem_filepaths))
+
+    def process_ddem(ddem_path):
+        """Load a dDEM and assign its error where finite pixels exist in a thread-safe approach."""
+        with rio.open(ddem_path) as raster:
+            # The dDEM may extend farther than the mosaic, so find the intersecting part only.
+            intersecting_bounds = rio.coords.BoundingBox(
+                max(target_bounds.left, raster.bounds.left),
+                max(target_bounds.bottom, raster.bounds.bottom),
+                min(target_bounds.right, raster.bounds.right),
+                min(target_bounds.top, raster.bounds.top),
+            )
+
+            # Read the dDEM (within the intersection only) and find where finite pixels exist.
+            valid_mask = np.isfinite(
+                raster.read(
+                    1, masked=True, window=rio.windows.from_bounds(*intersecting_bounds, transform=raster.transform)
+                ).filled(np.nan)
+            )
+
+        # Create slice objects for the dDEM to assign the mosaic
+        window = rio.windows.from_bounds(*intersecting_bounds, transform=target_meta["transform"])
+        row_slice = slice(int(window.row_off), int(window.row_off + window.height))
+        col_slice = slice(int(window.col_off), int(window.col_off + window.width))
+
+        with write_lock:
+            # Add the NMAD (going toward the squared sum) of the finite pixels
+            error_arr[row_slice, col_slice][valid_mask] += (
+                float(ddem_metadata[ddem_path.stem.replace("_ddem", "")]) ** 2
+            )
+            # Increment the counter at the valid pixels
+            counts[row_slice, col_slice][valid_mask] += 1
+        progress_bar.update(1)
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        list(executor.map(process_ddem, ddem_filepaths))
+    progress_bar.close()
+
+    # Derive the squared sum average for all pixels.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        error_arr = np.sqrt(error_arr) / counts
+
+    target_meta.update({"compress": "deflate", "tiled": True, "co_opts": {"NUM_THREADS": "ALL_CPUS"}})
+    # Write the squared sum average raster
+    with rio.open("temp/stable_ground_error.tif", "w", **target_meta) as raster:
+        raster.write(error_arr, 1)
+
