@@ -16,6 +16,8 @@ import terradem.dem_tools
 import terradem.files
 import terradem.metadata
 
+ICE_DENSITY_CONVERSION = 0.85
+ICE_DENSITY_ERROR = 0.06
 
 def read_mb_index() -> pd.DataFrame:
 
@@ -160,6 +162,31 @@ def get_corrections():
         return corrections.iloc[distances]["masschange_standard"], corrections.iloc[distances]["masschange_actual"]
 
     return get_masschanges
+
+def get_start_and_end_years():
+    mb_index = read_mb_index().cumsum()
+
+    dirpath = pathlib.Path(terradem.files.TEMP_SUBDIRS["tcorr_meta_coreg"])
+
+    data_list: list[dict[str, Any]] = []
+    for filepath in dirpath.iterdir():
+        with open(filepath) as infile:
+            data = json.load(infile)
+
+        data["station"] = filepath.stem
+
+        data_list.append(data)
+
+    corrections = pd.DataFrame(data_list).set_index("station")
+    corrections["start_date"] = pd.to_datetime(corrections["start_date"])
+
+    def get_start_and_end_year(easting: float, northing: float) -> tuple[float, float]:
+        distances = np.argmin(
+            np.linalg.norm([corrections["easting"] - easting, corrections["northing"] - northing], axis=0)
+        )
+        return corrections.iloc[distances]["start_date"].year + corrections.iloc[distances]["start_date"].month / 12 + corrections.iloc[distances]["start_date"].day / 364.75, corrections.iloc[distances]["end_year"]
+
+    return get_start_and_end_year
 
 
 def temporal_corr_error_model():

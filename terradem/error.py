@@ -7,7 +7,8 @@ import pathlib
 import pickle
 import random
 import threading
-import pathlib
+from collections.abc import Iterable
+from typing import overload
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -16,6 +17,7 @@ import pandas as pd
 import rasterio as rio
 import scipy.interpolate
 import shapely
+from shapely.geometry.base import BaseGeometry
 import skimage.measure
 from tqdm import tqdm, trange
 
@@ -79,7 +81,7 @@ def compare_idealized_interpolation(
 
     output = pd.DataFrame(
         {
-            key: {"median": np.median(values), "nmad": xdem.spatial_tools.nmad(values)}
+            key: {"median": np.median(values), "nmad": xdem.spatialstats.nmad(values)}
             for key, values in differences.items()
         }
     ).T
@@ -394,7 +396,7 @@ def terrain_error() -> None:
         values=subset["ddem"],
         list_var=[subset[key] for key in variable_names],
         list_var_names=variable_names,
-        statistics=["count", xdem.spatial_tools.nmad],
+        statistics=["count", xdem.spatialstats.nmad],
         list_var_bins=custom_bins,
     )
     error_df.to_csv(terradem.files.TEMP_FILES["topographic_error_df"])
@@ -519,20 +521,26 @@ def _extrapolate_point(point_1: tuple[float, float], point_2: tuple[float, float
     )
 
 
-def _iter_geom(geometry: object) -> object:
+def _iter_geom(geometry: BaseGeometry) -> Iterable[BaseGeometry]:
     """
     Return an iterable of the geometry.
 
     Use case: If 'geometry' is either a LineString or a MultiLineString. \
             Only MultiLineString can be iterated over normally.
     """
-    if "Multi" in geometry.geom_type or geometry.geom_type == "GeometryCollection":
+    if "Multi" in getattr(geometry, "geom_type", "") or getattr(geometry, "geom_type", "") == "GeometryCollection":
         return geometry
 
     return [geometry]
 
 
-def glacier_outline_error() -> np.ndarray:
+@overload
+def glacier_outline_error(plot: None) -> list[float]: ...
+
+@overload
+def glacier_outline_error(plot: int) -> None: ...
+
+def glacier_outline_error(plot: int | None = None) -> list[float]:
     """
     Calculate the error of the glacier outlines by comparing with the sparse "reference" outlines.
 
@@ -555,6 +563,7 @@ def glacier_outline_error() -> np.ndarray:
 
     # Initialize the output residuals list, aka the length difference for each line.
     residuals: list[float] = []
+    j = 0
     for _, ortho_subset in ortho_digitized.groupby("sgi-id", as_index=False):
         lk50_subset = lk50.loc[lk50["SGI"] == ortho_subset["sgi-id"].iloc[0]]
 
@@ -579,12 +588,11 @@ def glacier_outline_error() -> np.ndarray:
             for i in np.linspace(0, line.length):
                 points.append(line.interpolate(i))
 
-        """
-        for poly in iter_geom(lk50_glacier):
-            plt.plot(*poly.exterior.xy, color="blue")
-        for line in iter_geom(ortho_glacier):
-            plt.plot(*line.xy, color="orange")
-        """
+        if plot is not None and plot == j:
+            for poly in _iter_geom(lk50_glacier):
+                plt.plot(*poly.exterior.xy, color="blue", linestyle="--")
+            for line in _iter_geom(ortho_glacier):
+                plt.plot(*line.xy, color="orange")
 
         # Loop over all points, draw a long line, then cut the line to get and compare lengths
         diffs = []
@@ -615,19 +623,19 @@ def glacier_outline_error() -> np.ndarray:
             # The difference in length between this line will be the error.
             diffs.append(ortho_line.length - lk50_line.length)
 
-            """
-            plt.plot(*cut_ortho.xy, color="red", linewidth=5)
-            plt.plot(*cut_lk50.xy, color="blue", linewidth=3)
-            """
+            if plot is not None and plot == j:
+                plt.plot(*ortho_line.xy, color="red", linewidth=2)
+                plt.plot(*lk50_line.xy, color="blue", linewidth=2)
+                plt.plot(*min([ortho_line, lk50_line], key=lambda l: l.length).xy, color="black", linewidth=3, solid_capstyle="round")
 
+        if plot is not None and plot == j:
+            return
         residuals += diffs
-        """
-        plt.show()
-        """
+        j += 1
 
     # Print and plot the results.
     nmad = xdem.spatialstats.nmad(residuals)
-    print(np.median(residuals), nmad)
+    #print(np.median(residuals), nmad)
 
     return residuals
 
@@ -635,10 +643,27 @@ def glacier_outline_error() -> np.ndarray:
     # plt.show()
 
 
+def _dissolve_exterior(geom_or_geoms: BaseGeometry | Iterable[BaseGeometry]) -> shapely.geometry.MultiPolygon | shapely.geometry.Polygon:
+    geoms = []
+
+    if isinstance(geom_or_geoms, Iterable):
+        for geom in geom_or_geoms:
+            geoms.append(_dissolve_exterior(geom))
+    else:
+        if geom_or_geoms.interiors:
+            geoms.append(shapely.geometry.Polygon(list(geom_or_geoms.exterior.coords)))
+        else:
+            geoms.append(geom_or_geoms)
+
+    return shapely.ops.unary_union(geoms)
+
+
 def get_measurement_error() -> None:
     ddem_key = "ddem_coreg_tcorr_national-interp-extrap"
 
     lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
+    sgi2016 = gpd.read_file(terradem.files.INPUT_FILE_PATHS["sgi_2016"]).to_crs(lk50_outlines.crs)
+
     error_ds = rio.open("temp/stable_ground_error.tif")
     ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"])
     ddem_nointerp_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
@@ -646,6 +671,7 @@ def get_measurement_error() -> None:
     n_effective_samples = pd.read_csv(terradem.files.TEMP_FILES["n_effective_samples"], index_col=0, squeeze=True)
 
     temporal_error_model = terradem.massbalance.temporal_corr_error_model()
+    start_and_end_year_model = terradem.massbalance.get_start_and_end_years()
 
     # TODO: Refer to the external analysis in a better way than hardcoding like this.
     interpolation_variogram = [(2.82930058e02, "Sph", 8.80780720e-02), (2.11817045e03, "Sph", 3.20393346e-01)]
@@ -654,14 +680,15 @@ def get_measurement_error() -> None:
     ]
 
     neff_model = scipy.interpolate.interp1d(n_effective_samples.index, n_effective_samples, fill_value="extrapolate")
-    interp_neff_model = lambda a: xdem.spatialstats.neff_circ(a, interpolation_variogram)
+    def interp_neff_model(a): return xdem.spatialstats.neff_circ(a, interpolation_variogram)
 
     median_outline_uncertainty = abs(np.median(glacier_outline_error()))
 
     # Temporary. Shuffle the outlines to have nicely representative subsets
     lk50_outlines = lk50_outlines.iloc[np.random.permutation(lk50_outlines.shape[0])]
 
-    result = pd.DataFrame(dtype=float)
+    # result = pd.DataFrame(dtype=float)
+    result_list: list[dict[str, object]] = []
     for sgi_id, outlines in tqdm(lk50_outlines.groupby("SGI", sort=False), total=lk50_outlines.shape[0], smoothing=0):
         bounds = outlines.bounds.iloc[0]
         bounds[["maxx", "maxy"]] += error_ds.res[0]
@@ -678,29 +705,44 @@ def get_measurement_error() -> None:
         # ddem_ideal = ddem_ideal_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
 
         mask = rio.features.rasterize(outlines.geometry, out_shape=error.shape, fill=0, transform=transform) == 1
-        larger_mask = (
-            rio.features.rasterize(
-                outlines.geometry.buffer(median_outline_uncertainty), out_shape=error.shape, fill=0, transform=transform
-            )
-            == 1
-        )
-        smaller_mask = (
-            rio.features.rasterize(
-                outlines.geometry.buffer(-median_outline_uncertainty),
-                out_shape=error.shape,
-                fill=0,
-                transform=transform,
-            )
-            == 1
-        )
+
+        larger_outline = outlines.geometry.buffer(median_outline_uncertainty)
+        smaller_outline = outlines.geometry.buffer(-median_outline_uncertainty)
+
+        larger_mask = rio.features.rasterize(larger_outline, out_shape=error.shape, fill=0, transform=transform) == 1
+        smaller_mask = rio.features.rasterize(smaller_outline, out_shape=error.shape, fill=0, transform=transform) == 1
 
         area = outlines.geometry.area.sum()
+        area_m2_error = abs(larger_outline.area.sum() - smaller_outline.area.sum()) / 2
+
+        sgi_1973_ids = list(np.ravel([[outline["SGI1973"].split(",")] for _, outline in outlines.iterrows()]))
+        sgi_ids = sgi_1973_ids.copy()
+        for string in filter(lambda s: "-" in s, np.unique(sgi_ids)):
+            start, end = string.split("-")
+            sgi_ids.append(start + "-" + end.zfill(2))
+        modern_outlines = sgi2016[sgi2016.geometry.centroid.intersects(
+            outlines.geometry.values[0]) | sgi2016["sgi-id"].isin(sgi_ids)]
+        modern_area = modern_outlines.area.sum()
+
+        """
+        polygons = shapely.ops.unary_union([shapely.geometry.Polygon(list(p.exterior.coords)) for p in (outlines.geometry.iloc[0] if "Multi" in outlines.geometry.iloc[0].geom_type else [outlines.geometry.iloc[0]])])
+        if polygons.area > 1e7 and False:
+            plt.title(sgi_id)
+            for p in (polygons if "Multi" in polygons.geom_type else [polygons]):
+                plt.plot(*p.exterior.xy)
+
+            for geom in modern_outlines.geometry:
+                for p in (geom if "Multi" in geom.geom_type else [geom]):
+                
+                    plt.plot(*p.exterior.xy, color="orange")
+            plt.show()
+            #outlines.plot()
+        """
 
         gaps_percent = 100 * (
             1 - np.count_nonzero(np.isfinite(ddem_nointerp[mask])) / np.count_nonzero(np.isfinite(ddem[mask]))
         )
 
-        # ideal_ddem_nmad = 0.0 if gaps_percent == 100.0 else xdem.spatialstats.nmad((ddem_nointerp - ddem_ideal)[mask])
         interp_err = (gaps_percent / 100) * (
             np.abs(ddem_vs_ideal_error["median"]) + ddem_vs_ideal_error["nmad"] / np.sqrt(interp_neff_model(area))
         )
@@ -711,40 +753,65 @@ def get_measurement_error() -> None:
 
         diff = np.nanmean(ddem[mask])
 
-        temporal_error = abs(diff) * temporal_error_model(
-            np.mean([bounds["minx"], bounds["maxx"]]), np.mean([bounds["miny"], bounds["maxy"]])
+        easting = np.mean([bounds["minx"], bounds["maxx"]])
+        northing = np.mean([bounds["miny"], bounds["maxy"]])
+
+        temporal_error = np.abs(diff) * temporal_error_model(easting, northing)
+
+        start_year, end_year = start_and_end_year_model(easting, northing)
+
+        result_list.append(
+            {
+                "sgi_id": sgi_id,
+                "easting": easting,
+                "northing": northing,
+                "dh": diff,
+                "start_area": area,
+                "start_area_m2_err": area_m2_error,
+                "end_area": modern_area,
+                "start_year": start_year,
+                "end_year": end_year,
+                "gaps_percent": gaps_percent,
+                "interp_err": interp_err,
+                "area_err": area_error,
+                "topo_err": topographic_error,
+                "time_err": temporal_error,
+                "sgi_1973_ids": ",".join(sgi_1973_ids),
+                "sgi_2016_ids": ",".join(modern_outlines["sgi-id"].unique()),
+            }
         )
 
-        result.loc[sgi_id, ["dh", "area", "gaps_percent", "interp_err", "area_err", "topo_err", "time_err"]] = (
-            diff,
-            area,
-            gaps_percent,
-            interp_err,
-            area_error,
-            topographic_error,
-            temporal_error,
-        )
+    result = pd.DataFrame(result_list).set_index("sgi_id")
+
+    result["density_err"] = result["dh"].abs() * terradem.massbalance.ICE_DENSITY_ERROR
+
+    result["dm_tons_we"] = result["dh"] * result["start_area"] * terradem.massbalance.ICE_DENSITY_CONVERSION
+    result["dh_m_we"] = result["dm_tons_we"] / (result[["start_area", "end_area"]].mean(axis=1))
 
     result["dh_err"] = np.sqrt((result[["interp_err", "topo_err", "area_err", "time_err"]] ** 2).sum(axis=1))
+    result["dh_err_mwe"] = np.sqrt(((result[["interp_err", "topo_err", "area_err", "time_err"]] *
+                                     terradem.massbalance.ICE_DENSITY_CONVERSION) ** 2).sum(axis=1) + result["density_err"] ** 2)
     # result["dv"] = result["dh"] * result["area"]
     # result["dv_err"] = result["dh_err"] * result["area"]
 
-    weighted_avg = pd.Series(np.average(result, axis=0, weights=result["area"]), result.columns)
+    weighted_avg = pd.Series(np.average(result.select_dtypes(include=np.number), axis=0,
+                                        weights=result["start_area"]), result.select_dtypes(include=np.number).columns)
 
     regional_err = pd.Series(
         {
             "area_err": weighted_avg["area_err"],
             "time_err": weighted_avg["time_err"],
-            "topo_err": (weighted_avg["topo_err"] * np.sqrt(neff_model(weighted_avg["area"]))) / np.sqrt(
-        neff_model(result["area"].sum())
-    ),
-            "interp_err": (weighted_avg["gaps_percent"] / 100) * (
-        + ddem_vs_ideal_error["nmad"] / np.sqrt(interp_neff_model(result["area"].sum()))
-    ),
+            "topo_err": (weighted_avg["topo_err"] * np.sqrt(neff_model(weighted_avg["start_area"])))
+            / np.sqrt(neff_model(result["start_area"].sum())),
+            "interp_err": (weighted_avg["gaps_percent"] / 100)
+            * (+ddem_vs_ideal_error["nmad"] / np.sqrt(interp_neff_model(result["start_area"].sum()))),
         }
     )
     regional_err["dh_err"] = np.sqrt((regional_err ** 2).sum())
-    regional_err[["dh_err", "interp_err"]] += (weighted_avg["gaps_percent"] / 100) * abs(ddem_vs_ideal_error["median"])
+    regional_err["density_err"] = weighted_avg["density_err"]
+    regional_err["dh_err_mwe"] = np.sqrt((regional_err ** 2).sum())
+    regional_err[["dh_err", "interp_err", "dh_err_mwe"]
+                 ] += (weighted_avg["gaps_percent"] / 100) * abs(ddem_vs_ideal_error["median"])
 
     pd.set_option("display.float_format", lambda x: "%.4f" % x)
     print("Weighted average")
@@ -752,18 +819,27 @@ def get_measurement_error() -> None:
     print("\n\nRegional error")
     print(regional_err)
 
-    result.sort_values("area", inplace=True)
+    result.sort_values("start_area", inplace=True)
 
     midpoint = result.shape[0] // 2
 
     print("\n\nSmallest")
     print(result.iloc[:5].to_string())
     print("\n\nMiddle")
-    print(result.iloc[midpoint : midpoint + 5].to_string())
+    print(result.iloc[midpoint: midpoint + 5].to_string())
     print("\n\nLargest")
     print(result.iloc[-5:].to_string())
 
     # print(np.average(result[], weights=result["area"]), np.average(result["dh_err"], weights=result["area"]))
+
+    print(
+        1e-6 * (result["end_area"].sum() - result["start_area"].sum())
+        / (weighted_avg["end_year"] - weighted_avg["start_year"]),
+        "+-",
+        1e-6 * result["start_area_m2_err"].sum() / (weighted_avg["end_year"] - weighted_avg["start_year"]),
+    )
+
+    print(result[["start_area", "start_area_m2_err", "end_area"]].sum(axis=0))
 
     result.to_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
 
@@ -986,4 +1062,3 @@ def ddem_error():
     # Write the squared sum average raster
     with rio.open("temp/stable_ground_error.tif", "w", **target_meta) as raster:
         raster.write(error_arr, 1)
-

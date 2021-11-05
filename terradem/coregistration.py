@@ -118,7 +118,6 @@ def make_pipeline() -> xdem.coreg.CoregPipeline:
 
 
 def run_coregistration(reference_dem: np.ndarray, dem: np.ndarray, transform: rio.warp.Affine) -> None:
-
     bias = np.nanmedian(reference_dem - dem)
 
     dem -= bias
