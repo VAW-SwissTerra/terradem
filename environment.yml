@@ -17,6 +17,7 @@ dependencies:
         - geoutils
         - richdem
         - scikit-image
+        - cartopy
         # xdem should be installed, but is currently installed from source instead.
           #- xdem
         - pip:
