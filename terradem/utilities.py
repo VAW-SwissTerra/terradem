@@ -1,8 +1,15 @@
 """Utility functions for Python."""
 from __future__ import annotations
 
+from typing import overload, Sequence
 import os
 import re
+import numpy as np
+import pyproj
+#import pyproj.transformer
+#import pyproj.crs
+
+_LV03_TO_LV95 = pyproj.transformer.Transformer.from_crs(pyproj.crs.CRS.from_epsg(21781), pyproj.crs.CRS.from_epsg(2056))
 
 def list_files(directory: str, pattern: str = ".*") -> list[str]:
     """
@@ -39,3 +46,15 @@ def station_from_filepath(filepath: str) -> str:
     assert station.startswith("station_")
 
     return station
+
+
+@overload
+def lv03_to_lv95(easting: np.ndarray, northing: np.ndarray) -> np.ndarray: ...
+@overload
+def lv03_to_lv95(easting: float, northing: float) -> tuple[float, float]: ...
+
+def lv03_to_lv95(easting: np.ndarray | float, northing: np.ndarray | float) -> np.ndarray | tuple[float, float]:
+
+    trans = _LV03_TO_LV95.transform(easting, northing)
+
+    return trans if not isinstance(easting, Sequence) else np.array(trans).T

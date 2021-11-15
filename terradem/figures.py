@@ -1,11 +1,17 @@
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
 import cartopy.crs as ccrs
 import geopandas as gpd
 import matplotlib
+import matplotlib.cm
+import matplotlib.colors
 import matplotlib.patches
+import matplotlib.patheffects
 import matplotlib.pyplot as plt
+import numba
 import numpy as np
 import pandas as pd
 import rasterio as rio
@@ -19,6 +25,75 @@ import terradem.files
 import terradem.massbalance
 import terradem.utilities
 import xdem
+
+DH_VLIM = 4
+DH_NORMALIZER = matplotlib.colors.Normalize(vmin=-DH_VLIM, vmax=DH_VLIM, clip=True)
+DH_CMAP = matplotlib.cm.ScalarMappable(
+    norm=DH_NORMALIZER,
+    cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
+        "dh",
+        [
+            (DH_NORMALIZER(a), b)
+            for a, b in [
+                (-DH_VLIM, "#95142A"),  # crimson
+                (-0.75, "#C6624C"),
+                (-0.55, "#E56B1A"),  # rust red
+                (-0.375, "#E5BD1A"),  # butterscotch
+                (-0.19, "#F4D780"),  # Sand
+                (0, "lightgray"),
+                (0.5, "royalblue"),
+                (DH_VLIM, "royalblue"),
+            ]
+        ],
+    ),
+)
+
+
+def colorbar(
+    cmap: matplotlib.cm.ScalarMappable = DH_CMAP,
+    axis: plt.Axes | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    loc: tuple[float, float] = (0.1, 0.6),
+    width: float = 0.05,
+    height: float = 0.2,
+    label: str = "",
+    tick_right: bool = False,
+) -> plt.Axes:
+
+    vmin = vmin or cmap.norm.vmin
+    vmax = vmax or cmap.norm.vmax
+    axis = axis or plt.gca()
+
+    a: plt.Axes = plt.gca()
+    inset = a.inset_axes([*loc, width, height], transform=a.transAxes)
+
+    steps = np.linspace(vmin, vmax, 255)
+    width = 0.05
+    for i in steps:
+        inset.add_patch(
+            plt.Rectangle((0, i), width, steps[1] - steps[0], edgecolor="none", facecolor=DH_CMAP.to_rgba(i))
+        )
+
+    # axis.add_patch(plt.Rectangle((0, DH_NORMALIZER.vmax), width, steps[-1] - steps[0], edgecolor="k", facecolor="none"))
+    inset.set_ylim(vmin, vmax)
+    inset.set_xlim(0, width)
+    inset.set_xticks([])
+
+    ylabel_props = {
+            "fontsize": 12,
+            "bbox": dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8)
+    }
+
+    if tick_right:
+        inset.yaxis.set_label_position("right")
+        #inset.set_ylabel("dHdt$^{-1}$ (ma$^{-1}$ w.e.)", rotation=270, labelpad=14, **ylabel_props)
+        inset.set_ylabel(label, rotation=270, labelpad=14, **ylabel_props)
+        inset.yaxis.tick_right()
+    else:
+        inset.set_ylabel(label, **ylabel_props)
+
+    return inset
 
 
 def topographic_error():
@@ -194,6 +269,38 @@ def elevation_change_histograms():
     plt.show()
 
 
+def plot_base_dem_slope(axis: plt.Axes | None = None):
+
+    axis = axis or plt.gca()
+
+    with rio.open(terradem.files.TEMP_FILES["base_dem_slope"], overview_level=3) as raster:
+        slope = raster.read(1, masked=True)
+        bounds = raster.bounds
+        outline = gpd.GeoSeries(
+            [
+                shapely.geometry.shape(l[0])
+                for l in rio.features.shapes(slope.mask.astype("uint8"), transform=raster.transform)
+                if l[1] == 0
+            ],
+            crs=raster.crs,
+        )
+
+    axis.imshow(
+        slope, cmap="Greys", extent=[bounds.left, bounds.right, bounds.bottom, bounds.top], interpolation="bilinear"
+    )
+
+
+def plot_lk50_glaciers(axis: plt.Axes | None = None, lk50_outlines: gpd.GeoDataFrame | None = None) -> None:
+    axis = axis or plt.gca()
+    lk50_outlines = (
+        lk50_outlines if lk50_outlines is not None else gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
+    )
+
+    lk50_outlines["subregion"] = lk50_outlines["SGI"].str.slice(stop=2)
+
+    lk50_outlines.plot(ax=axis, edgecolor="black", lw=0.1)  # , column="subregion")
+
+
 def overview():
 
     climate = terradem.climate.mean_climate_deviation(slice(1961, 1990))
@@ -225,7 +332,8 @@ def overview():
     plt.imshow(
         slope, cmap="Greys", extent=[bounds.left, bounds.right, bounds.bottom, bounds.top], interpolation="bilinear"
     )
-    lk50_outlines.plot(ax=plt.gca(), edgecolor="black", lw=0.1)
+    # lk50_outlines.plot(ax=plt.gca(), edgecolor="black", lw=0.1)
+    plot_lk50_glaciers(lk50_outlines=lk50_outlines)
     outline.plot(ax=plt.gca(), facecolor="none", edgecolor="black")
     plt.xlim(lk50_outlines.total_bounds[[0, 2]])
     # plt.ylim(lk50_outlines.total_bounds[[1, 3]])
@@ -588,4 +696,199 @@ def historic_images():
     plt.subplots_adjust(top=0.995, bottom=0.087, left=0.04, right=0.995, hspace=0.0, wspace=0.05)
     plt.savefig("temp/figures/image_examples.jpg", dpi=600)
     plt.show()
+
+
+def regional_dh():
+    data = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
+
+    # Take the first two letters of the sgi-id and hash them (creating a unique int; good for grouping)
+    data["subregion"] = data["sgi_id"].str.slice(stop=2).apply(hash)
+
+    data = data.select_dtypes(np.number)
+
+    gridsize_x = 60000
+    gridsize_y = gridsize_x
+
+    xmin = (data["easting"].min() - data["easting"].min() % gridsize_x) - gridsize_x * 2
+    xmax = (data["easting"].max() - data["easting"].max() % gridsize_x) + gridsize_x * 2
+    ymin = (data["northing"].min() - data["northing"].min() % gridsize_y) - gridsize_y * 2
+    ymax = (data["northing"].max() - data["northing"].max() % gridsize_y) + gridsize_y * 2
+
+    grid_x = np.arange(xmin, xmax, gridsize_x)
+    grid_y = np.arange(ymin, ymax, gridsize_y)[::-1]
+
+    data["col"] = np.digitize(data["easting"], grid_x) - 1
+    data["row"] = np.digitize(data["northing"], grid_y) - 1
+    data["i"] = grid_x.size * data["row"] + data["col"]
+
+    data["grid_east"] = grid_x[data["col"].values] + gridsize_x / 2
+    data["grid_north"] = grid_y[data["row"].values] + gridsize_y / 2
+
+    data["weight"] = data["start_area"] / data["start_area"].max()
+
+    data_times_weight = data * data["weight"].values.reshape((-1, 1))
+
+    data_weight_where_notnull = pd.notnull(data) * data["weight"].values.reshape((-1, 1))
+
+    group_column = "i"
+
+    data_times_weight[group_column] = data[group_column]
+    data_weight_where_notnull[group_column] = data[group_column]
+
+    grouped = data_times_weight.groupby(group_column).sum() / data_weight_where_notnull.groupby(group_column).sum()
+    grouped["area_km2"] = data.groupby(group_column).sum()["start_area"] * 1e-6
+    # grouped["area_km2"] = grouped["start_area"] * grouped["count"] * 1e-6
+
+    grouped.sort_values("easting", inplace=True)
+
+    # grouped = grouped[grouped["dh_m_we"] > -2]
+
+    # grouped["size"] = np.clip(grouped["dh_m_we"] * -60 + 1, 0, 200)
+    size_func = lambda area_km2: np.sqrt(area_km2) * 30
+    grouped["size"] = size_func(grouped["area_km2"])
+
+    # cmap = matplotlib.cm.ScalarMappable(norm=matplotlib.colors.Normalize(vmin=-1, vmax=1), cmap="RdBu")
+    grouped["color"] = grouped["dh_m_we"].apply(DH_CMAP.to_rgba)
+
+    plt.figure(figsize=(8, 5), dpi=200)
+    plot_base_dem_slope()
+    plot_lk50_glaciers()
+    plt.scatter(
+        grouped["easting"],
+        grouped["northing"],
+        s=grouped["size"],
+        c=grouped["color"],
+        edgecolors="k",
+        alpha=0.9,
+        vmin=-1,
+        vmax=0.5,
+        cmap=DH_CMAP,
+    )
+    for _, row in grouped.iterrows():
+        text = str(round(row["dh_m_we"], 2))
+        text += "0" * (5 - len(text))
+        plt.annotate(
+            text,
+            xy=(row["easting"], row["northing"]),
+            ha="center",
+            va="center",
+            fontsize=8,
+            path_effects=[matplotlib.patheffects.Stroke(foreground="w", linewidth=2), matplotlib.patheffects.Normal()],
+        )
+    # print(DH_CMAP.set_clim(-1, 0.2))
+    # cbar = plt.colorbar(DH_CMAP)
+    inset = colorbar(DH_CMAP, height=0.3, loc=(0.03, 0.65), vmax=0.2, vmin=-0.75)
+    inset.yaxis.set_label_position("right")
+    inset.set_ylabel("dHdt$^{-1}$ (ma$^{-1}$ w.e.)", rotation=270, labelpad=14)
+    inset.yaxis.tick_right()
+
+    legend_items = (
+        # Add empty patch as a header
+        {"Size (km²)": matplotlib.patches.Patch(facecolor="none", edgecolor="none")}  # Add an empty patch as a header
+        | {
+            f"{area_km2} km²": plt.scatter(0, 0, s=size_func(area_km2), c="white", edgecolor="k")
+            for area_km2 in [10, 400]
+        }
+    )
+    legend_items_list = list(legend_items.items())
+    legend_items_list.insert(-1, ("", matplotlib.patches.Patch(facecolor="none", edgecolor="none")))
+    legend_items = dict(legend_items_list)
+
+    plt.ylim(61995, 302000)
+    plt.xlim(480000, 838755)
+
+    xticks = plt.gca().get_xticks()[[1, -2]]
+    plt.xticks(xticks, (xticks + 2e6).astype(int))
+    yticks = plt.gca().get_yticks()[[1, -3]]
+    plt.yticks(yticks, (yticks + 1e6).astype(int), rotation=270, va="center")
+
+    plt.ylabel("Northing (m)")
+    plt.xlabel("Easting (m)")
+
+    plt.legend(labels=legend_items.keys(), handles=legend_items.values(), borderpad=0.9)
+    plt.tight_layout()
+
+    plt.savefig("temp/figures/dh_bubbles.jpg", dpi=600)
+
+    plt.show()
+    # print(data.select_dtypes(np.number).groupby("i").aggregate(lambda df: np.average(df, weights=data.loc[df.index, "start_area"], axis=0)))
+
+
+def interpolation_before_and_after():
+
+    bounds = rio.coords.BoundingBox(632760, 132950, 665800, 174560)
+
+    ddem_paths = {
+        "gappy": terradem.files.TEMP_FILES["ddem_coreg_tcorr"],
+        "interp": terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"],
+    }
+
+    ddems: dict[str, np.ndarray] = {}
+
+    for key in ddem_paths:
+        with rio.open(ddem_paths[key]) as raster:
+            window = rio.windows.from_bounds(*bounds, raster.transform)
+            ddems[key] = downsample_nans(raster.read(1, window=window, masked=True).filled(np.nan), 7)
+
+    imshow_params = {
+        "cmap": DH_CMAP.get_cmap(),
+        "norm": DH_CMAP.norm,
+        "interpolation": "bilinear",
+        "extent": [bounds.left, bounds.right, bounds.bottom, bounds.top],
+    }
+
+    plt.figure(figsize=(8.3, 5), dpi=200)
+    for i, key in enumerate(ddems, start=1):
+        plt.subplot(1, 2, i)
+        plt.imshow(np.ma.masked_array(ddems[key], mask=np.isnan(ddems[key])), **imshow_params)
+
+        yticks = plt.gca().get_yticks()[[2, -2]]
+        plt.yticks(yticks, (yticks + 1e6).astype(int) if i == 1 else [""] * len(yticks), rotation=270, va="center")
+        xticks = plt.gca().get_xticks()[[2, -3]]
+        plt.xticks(xticks, (xticks + 2e6).astype(int) if i == 1 else [""] * len(xticks))
+
+        plt.text(0.03, 0.98, "A)" if i == 1 else "B)", ha="left", va="top", transform=plt.gca().transAxes, fontsize=12)
+        if i == 1:
+            inset = colorbar(label="dHdt$^{-1}$ (ma$^{-1}$)", tick_right=True, loc=(0.02, 0.7), vmax=1)
+            inset.set_yticks([-4, -1, 0, 1])
+            inset.set_yticklabels(["$<-4$", "-1", "0", ">1"])
+            plt.ylabel("Northing (m)")
+            plt.xlabel("Easting (m)")
+
+    plt.tight_layout()
+
+    plt.subplots_adjust(top=0.99, bottom=0.09, left=0.095, right=0.982, hspace=0.2, wspace=0.0)
+    plt.savefig("temp/figures/interpolation_before_and_after.jpg", dpi=900)
+    plt.show()
+
+
+def rebin(arr: np.ndarray, shape: tuple[int, int]):
+    """
+    Modified from: https://stackoverflow.com/a/8090605
+    """
+    sh = shape[0], arr.shape[0] // shape[0], shape[1], arr.shape[1] // shape[1]
+    return np.nanmean(np.nanmean(arr.reshape(sh), -1), 1)
+
+
+@numba.njit(parallel=True)
+def downsample_nans(array: np.ndarray, downsample: int = 5):
+
+    new_array_shape = array.shape[0] // downsample, array.shape[1] // downsample
+
+    new_array = np.zeros(new_array_shape[0] * new_array_shape[1], dtype="float32") + np.nan
+
+    for i in numba.prange(new_array.size):
+        min_row = min((i // new_array_shape[1]) * downsample, array.shape[0] - 1)
+        min_col = min((i % new_array_shape[1]) * downsample, array.shape[1] - 1)
+
+        max_col = min(min_col + downsample, array.shape[1] - 1)
+        max_row = min(min_row + downsample, array.shape[0] - 1)
+
+        values = array[min_row:max_row, min_col:max_col]
+
+        if np.count_nonzero(np.isfinite(values)) == 0:
+            continue
+        new_array[i] = np.nanmean(values)
+
+    return new_array.reshape(new_array_shape)
 

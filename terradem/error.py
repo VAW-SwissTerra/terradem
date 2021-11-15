@@ -666,6 +666,7 @@ def get_measurement_error() -> None:
 
     error_ds = rio.open("temp/stable_ground_error.tif")
     ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"])
+    dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
     ddem_nointerp_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
     ddem_ideal_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap-ideal"])
     n_effective_samples = pd.read_csv(terradem.files.TEMP_FILES["n_effective_samples"], index_col=0, squeeze=True)
@@ -756,6 +757,8 @@ def get_measurement_error() -> None:
         easting = np.mean([bounds["minx"], bounds["maxx"]])
         northing = np.mean([bounds["miny"], bounds["maxy"]])
 
+        dem = dem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)[mask]
+
         temporal_error = np.abs(diff) * temporal_error_model(easting, northing)
 
         start_year, end_year = start_and_end_year_model(easting, northing)
@@ -776,6 +779,9 @@ def get_measurement_error() -> None:
                 "area_err": area_error,
                 "topo_err": topographic_error,
                 "time_err": temporal_error,
+                "max_elev": np.nanmax(dem),
+                "min_elev": np.nanmin(dem),
+                "med_elev": np.nanmedian(dem),
                 "sgi_1973_ids": ",".join(sgi_1973_ids),
                 "sgi_2016_ids": ",".join(modern_outlines["sgi-id"].unique()),
             }
