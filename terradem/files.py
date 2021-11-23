@@ -38,6 +38,7 @@ TEMP_SUBDIRS = {
     "hypsometric_signals": os.path.join(TEMP_DIRECTORY, "hypsometric_signals"),
     "base_dem": os.path.join(TEMP_DIRECTORY, "base_dem"),
     "merged_ddems": os.path.join(TEMP_DIRECTORY, "merged_ddems"),
+    "viewsheds": os.path.join(TEMP_DIRECTORY, "viewsheds"),
 }
 TEMP_FILES = {
     "ddem_stats": os.path.join(TEMP_DIRECTORY, "ddem_stats.csv"),

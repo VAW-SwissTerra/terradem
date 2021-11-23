@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import warnings
 import cartopy.crs as ccrs
 import geopandas as gpd
 import matplotlib
@@ -23,6 +24,7 @@ import terradem.climate
 import terradem.error
 import terradem.files
 import terradem.massbalance
+import terradem.orthorectification
 import terradem.utilities
 import xdem
 
@@ -35,11 +37,12 @@ DH_CMAP = matplotlib.cm.ScalarMappable(
         [
             (DH_NORMALIZER(a), b)
             for a, b in [
-                (-DH_VLIM, "#95142A"),  # crimson
-                (-0.75, "#C6624C"),
-                (-0.55, "#E56B1A"),  # rust red
-                (-0.375, "#E5BD1A"),  # butterscotch
-                (-0.19, "#F4D780"),  # Sand
+                (-DH_VLIM, "#400912"),
+                (-3, "#590C19"),
+                (-2, "#95142A"),  # crimson
+                (-0.6, "#E56B1A"),  # rust red
+                (-0.3, "#E5BD1A"),  # butterscotch
+                (-0.15, "#F4D780"),  # Sand
                 (0, "lightgray"),
                 (0.5, "royalblue"),
                 (DH_VLIM, "royalblue"),
@@ -47,6 +50,8 @@ DH_CMAP = matplotlib.cm.ScalarMappable(
         ],
     ),
 )
+DH_UNIT = "ma⁻¹"
+DH_MWE_UNIT = "m w.e. a⁻¹"
 
 
 def colorbar(
@@ -332,7 +337,7 @@ def overview():
     plt.imshow(
         slope, cmap="Greys", extent=[bounds.left, bounds.right, bounds.bottom, bounds.top], interpolation="bilinear"
     )
-    # lk50_outlines.plot(ax=plt.gca(), edgecolor="black", lw=0.1)
+    #total lk50_outlines.plot(ax=plt.gca(), edgecolor="black", lw=0.1)
     plot_lk50_glaciers(lk50_outlines=lk50_outlines)
     outline.plot(ax=plt.gca(), facecolor="none", edgecolor="black")
     plt.xlim(lk50_outlines.total_bounds[[0, 2]])
@@ -698,6 +703,104 @@ def historic_images():
     plt.show()
 
 
+def dh_histogram():
+    data = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
+
+    data = data[(data["dh_m_we"] - data["dh_m_we"].median()).abs() < (xdem.spatialstats.nmad(data["dh_m_we"]) * 4)]
+
+    data["area_km2"] = data[["start_area", "end_area"]].mean(axis=1) * 1e-6
+
+    plt.hist2d(data["med_elev"], data["dh_m_we"], bins=50, cmin=1, cmap="magma_r")
+
+    xticks = plt.gca().get_xticks()
+
+    #plt.xticks(xticks, labels=[r"$10^{" + str(int(n)) + "}$" for n in xticks])
+    plt.ylabel("dHdt$^{-1}$ (ma$^{-1}$ w.e.)")
+    #plt.xlabel("Area (km²)")
+    plt.xlabel("Elevation (m a.s.l.")
+
+    plt.show()
+
+
+def west_east_transect():
+    warnings.simplefilter("error")
+    data = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
+
+    data = data.sort_values("start_area", ascending=False).sort_values("start_area", ascending=False)
+
+    data["subregion"] = data["sgi_id"].str.slice(stop=1)
+
+    subregion = data.groupby("subregion")
+
+    starts = subregion["easting"].min()
+    ends = subregion["easting"].max()
+
+    ranges = ends - starts
+    
+    distance = 13000
+    breaks = (ranges[starts.sort_values().index].shift(1) + distance).fillna(0).cumsum()
+
+    data["easting"] -= (starts - breaks)[data["subregion"]].values
+
+    #data = data[data["start_area"] > 2e5].copy().sort_values("easting")
+    data.sort_values("easting", inplace=True)
+
+    distances = starts.sort_values().copy()
+    distances[:] = distance
+    distances.iloc[0] = 0
+    distances = distances.cumsum()
+
+    plt.figure(figsize=(8.3, 4))
+    data["width"] = data["start_area"] / 1e4
+    data["left"] = distances[data["subregion"]].values + data["width"].cumsum()
+
+    plt.bar(data["left"] - data["width"] / 2, height=data["max_elev"] - data["min_elev"], width=data["width"], bottom=data["min_elev"], color=DH_CMAP.to_rgba(data["dh_m_we"]), zorder=2)
+    #plt.bar(data["easting"], height=data["max_elev"] - data["min_elev"], width=data["start_area"] / 1e4 + 400, bottom=data["min_elev"], color=DH_CMAP.to_rgba(data["dh_m_we"]))#, edgecolor="k", linewidth=0.3)
+
+    for i, subset in data.groupby("subregion"):
+        #bins = np.digitize(subset["left"], np.linspace(subset["left"].min(), subset["left"].max(), num=25))
+
+        #easting_normalized = subset.groupby(bins).mean().rolling(2, min_periods=1).mean()
+        easting_normalized = subset.rolling(120, min_periods=1).mean()
+
+        plt.plot(easting_normalized["left"], easting_normalized["med_elev"], c="k")
+
+    colorbar(loc=(1.08, 0.6), label="dHdt$^{-1}$ (ma$^{-1}$ w.e.)", height=0.4, vmax=1, vmin=-2)
+
+    subregion = data.groupby("subregion")
+    ylim = plt.gca().get_ylim()
+    plt.vlines(data.groupby("subregion")["left"].max() + distance / 2, ylim[0], ylim[1], linestyles="--", color="k")
+
+    plt.xlim(0, data["left"].max() + distance / 2)
+
+    plt.hlines([2000, 3000, 4000], 0, data["left"].max() + distance / 2, linestyles="--", color="gray", zorder=1)
+
+    subregion_names = {"A": "Rhine", "B": "Rhone", "C": "Po", "E": "Dan."}
+
+    for i in ranges.index:
+        subregion_data = data[data["subregion"] == i]
+
+        mean_dh = str(round(subregion_data["dh_m_we"].mean(), 2))
+        mean_dh += "0" * (5 - len(mean_dh))
+
+        newline = '\n' if i not in ['A', 'B'] else ' '
+
+        plt.annotate(
+                (f"{subregion_names[i]}\n{round(subregion_data['start_area'].sum() * 1e-6)} km²\n{mean_dh}{newline}{DH_MWE_UNIT}"), 
+                (np.mean([data.loc[data["subregion"] == i, "left"].min(), data.loc[data["subregion"] == i, "left"].max()], axis=0), ylim[0] + 100), ha="center", path_effects=[matplotlib.patheffects.Stroke(linewidth=1, foreground="w"), matplotlib.patheffects.Normal()])
+    plt.ylim(ylim)
+
+    xticks = plt.gca().get_xticks()
+    plt.xticks(xticks, [""] * len(xticks))
+    plt.ylabel("Elevation (m a.s.l.)")
+
+
+    plt.savefig("temp/figures/west_east_transect.jpg", dpi=600)
+    plt.show()
+
+    print(data)
+
+
 def regional_dh():
     data = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
 
@@ -779,7 +882,7 @@ def regional_dh():
     # cbar = plt.colorbar(DH_CMAP)
     inset = colorbar(DH_CMAP, height=0.3, loc=(0.03, 0.65), vmax=0.2, vmin=-0.75)
     inset.yaxis.set_label_position("right")
-    inset.set_ylabel("dHdt$^{-1}$ (ma$^{-1}$ w.e.)", rotation=270, labelpad=14)
+    inset.set_ylabel("dHdt$^{-1}$ (" + DH_MWE_UNIT + ")", rotation=270, labelpad=14)
     inset.yaxis.tick_right()
 
     legend_items = (
@@ -861,17 +964,54 @@ def interpolation_before_and_after():
     plt.savefig("temp/figures/interpolation_before_and_after.jpg", dpi=900)
     plt.show()
 
+def ddem_example(station_name: str = "station_1536"):
 
-def rebin(arr: np.ndarray, shape: tuple[int, int]):
-    """
-    Modified from: https://stackoverflow.com/a/8090605
-    """
-    sh = shape[0], arr.shape[0] // shape[0], shape[1], arr.shape[1] // shape[1]
-    return np.nanmean(np.nanmean(arr.reshape(sh), -1), 1)
+    bounds = rio.coords.BoundingBox(639450, 139000, 644500, 144000)
 
+    image_meta = pd.read_csv(terradem.files.INPUT_FILE_PATHS["swisstopo_metadata"])
+    image_meta = image_meta[image_meta["station_name"].str.contains(station_name)]
+    lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
+
+
+    viewshed = terradem.orthorectification.get_viewshed(station_name=station_name).values.ravel()
+
+    ddem_coreg_ds = rio.open(Path(terradem.files.TEMP_SUBDIRS["ddems_coreg"]).joinpath(f"{station_name}_ddem.tif"))
+    ddem_non_coreg_ds = rio.open(Path(terradem.files.TEMP_SUBDIRS["ddems_non_coreg"]).joinpath(f"{station_name}_ddem.tif"))
+
+    window = rio.windows.from_bounds(*bounds, transform=ddem_coreg_ds.transform)
+
+    for i, ddem_ds in enumerate([ddem_non_coreg_ds, ddem_coreg_ds], start=1):
+        axis = plt.subplot(1, 2, i)
+        ddem = ddem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
+
+        lk50_outlines.plot(color="#ADB7D2", edgecolor="k",alpha=0.5, linewidth=0.5,  ax=axis)
+
+        plt.imshow(ddem, extent=[bounds.left, bounds.right, bounds.bottom, bounds.top], cmap=DH_CMAP.get_cmap(), norm=DH_CMAP.norm, zorder=1)
+        for polygon in viewshed:
+            plt.plot(*polygon.exterior.xy, linestyle="--", color="black", zorder=2, linewidth=1)
+        plt.ylim(bounds.bottom, bounds.top)
+        plt.xlim(bounds.left,  bounds.right)
+        plt.quiver(image_meta["easting"], image_meta["northing"], 1, 1, angles=90 - image_meta["yaw"], headwidth=3, headlength=2, width=4e-3)
+    plt.show()
 
 @numba.njit(parallel=True)
 def downsample_nans(array: np.ndarray, downsample: int = 5):
+    """
+    Downsample a 2D array, ignoring nans.
+
+    :param array: A 2D array to downsample.
+    :param downsample: The downsampling level (2 means half the original width/height)
+
+    :examples:
+        >>> array = np.arange(16, dtype="float32").reshape(4, 4)
+        >>> array[-1, -1] = np.nan
+        >>> downsampled = downsample_nans(array, downsample=2)
+        >>> downsampled.shape
+        (2, 2)
+        >>> downsampled
+        array([[ 2.5,  4. ],
+               [ 8.5, 10. ]])
+    """
 
     new_array_shape = array.shape[0] // downsample, array.shape[1] // downsample
 
