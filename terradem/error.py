@@ -528,8 +528,9 @@ def _iter_geom(geometry: BaseGeometry) -> Iterable[BaseGeometry]:
     Use case: If 'geometry' is either a LineString or a MultiLineString. \
             Only MultiLineString can be iterated over normally.
     """
+    return getattr(geometry, "geoms", [geometry])
     if "Multi" in getattr(geometry, "geom_type", "") or getattr(geometry, "geom_type", "") == "GeometryCollection":
-        return geometry
+        return geometry.geoms
 
     return [geometry]
 
@@ -555,6 +556,7 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
     """
     # Load the data
     lk50 = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
+
     ortho_digitized = gpd.read_file(terradem.files.INPUT_FILE_PATHS["digitized_outlines"]).to_crs(lk50.crs)
 
     # Filter the data so only the ones that exist in each respective dataset are kept.
@@ -584,10 +586,10 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
 
         # Draw points along the ortho-drawn line(s) to measure distances with.
         points: list[shapely.geometry.Point] = []
-        for line in _iter_geom(ortho_glacier):
+        for line in getattr(ortho_glacier, "geoms", [ortho_glacier]):
             for i in np.linspace(0, line.length):
                 points.append(line.interpolate(i))
-
+        
         if plot is not None and plot == j:
             for poly in _iter_geom(lk50_glacier):
                 plt.plot(*poly.exterior.xy, color="blue", linestyle="--")

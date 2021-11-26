@@ -243,6 +243,58 @@ def temporal_correction():
     print(tcorr_meta)
 
 
+def outline_error():
+
+    fig = plt.figure(figsize=(8.3, 3.6))
+
+    axis = plt.subplot(1, 2, 1)
+    bounds = rio.coords.BoundingBox(left=628150, right=633160,bottom=100800,top=105000)
+    lk50_url = "/remotes/haakon/Gammalt/maud/maud/Data/SwissTerra/basedata/LK50_first_edition_compilation/LK50_first_edition_compilation.vrt"
+    with rio.open(lk50_url) as raster:
+        lk50_raster = np.moveaxis(raster.read(window=rio.windows.from_bounds(*bounds, transform=raster.transform)), 0, -1)
+
+    digitized_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["digitized_outlines"])
+
+    plt.imshow(lk50_raster, extent=[bounds.left, bounds.right, bounds.bottom ,bounds.top])
+    digitized_outlines.plot(edgecolor="red", facecolor="none", linestyle="--", ax=axis)
+    plt.text(0.008, 0.99, "A)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top", bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.2))
+
+    plt.xlim(bounds.left, bounds.right)
+    plt.ylim(bounds.bottom ,bounds.top)
+    yticks = plt.gca().get_yticks()[[2, -2]]
+    plt.yticks(yticks, (yticks + 1e6).astype(int), rotation=90, va="center")
+    xticks = plt.gca().get_xticks()[[2, -3]]
+    plt.xticks(xticks, (xticks + 2e6).astype(int))
+    plt.gca().xaxis.tick_top()
+    plt.gca().xaxis.set_label_position("top")
+    plt.xlabel("Easting (m)")
+    plt.ylabel("Northing (m)")
+
+    plt.subplot(1, 2, 2)
+    terradem.error.glacier_outline_error(plot=14)
+    plt.xlim(659300, 661000)
+    plt.ylim(160200, 162000)
+    plt.xlabel("Easting (m)")
+    plt.ylabel("Northing (m)", rotation=270)
+    plt.yticks(
+        plt.gca().get_yticks()[[1, -1]],
+        labels=(plt.gca().get_yticks()[[1, -1]] + 1e6).astype(int),
+        rotation=270,
+        va="center",
+    )
+    xticks = plt.gca().get_xticks()[[1, -2]]
+    plt.xticks(xticks, labels=(xticks + 2e6).astype(int))
+    plt.gca().xaxis.tick_top()
+    plt.gca().xaxis.set_label_position("top")
+    plt.gca().yaxis.tick_right()
+    plt.gca().yaxis.set_label_position("right")
+    plt.text(0.008, 0.99, "B)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
+
+    plt.tight_layout()
+    plt.savefig("temp/figures/outline_error.jpg", dpi=600)
+
+    plt.show()
+
 def elevation_change_histograms():
     data = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
 
@@ -393,34 +445,87 @@ def error_ensemble():
         "area_err": "Area error",
         "interp_err": "Interpolation error",
     }
-    plt.subplot2grid(grid, (0, 0), rowspan=grid[0] // 2, colspan=grid[0] // 2)
-    terradem.error.glacier_outline_error(plot=14)
-    plt.xlim(659300, 661000)
-    plt.ylim(160200, 162000)
-    plt.xlabel("Easting (m)")
-    plt.ylabel("Northing (m)")
-    plt.yticks(
-        plt.gca().get_yticks()[[1, -1]],
-        labels=(plt.gca().get_yticks()[[1, -1]] + 1e6).astype(int),
-        rotation=90,
-        ha="right",
-        va="center",
-    )
-    plt.xticks(plt.gca().get_xticks()[[1, -1]], labels=(plt.gca().get_xticks()[[1, -1]] + 2e6).astype(int))
-    plt.gca().xaxis.tick_top()
-    plt.gca().xaxis.set_label_position("top")
-    plt.text(0.02, 0.97, "A)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
+    bounds = rio.coords.BoundingBox(left=639450, bottom=139000, right=644500, top=144000 + 800)
+
+    station_name: str = "station_1536"
+    image_meta = pd.read_csv(terradem.files.INPUT_FILE_PATHS["swisstopo_metadata"])
+    image_meta = image_meta[image_meta["station_name"].str.contains(station_name)]
+    lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
+
+    viewshed = terradem.orthorectification.get_viewshed(station_name=station_name).values.ravel()
+
+    ddem_coreg_ds = rio.open(Path(terradem.files.TEMP_SUBDIRS["ddems_coreg"]).joinpath(f"{station_name}_ddem.tif"))
+    ddem_non_coreg_ds = rio.open(Path(terradem.files.TEMP_SUBDIRS["ddems_non_coreg"]).joinpath(f"{station_name}_ddem.tif"))
+
+    window = rio.windows.from_bounds(*bounds, transform=ddem_coreg_ds.transform)
+
+    for i, ddem_ds in enumerate([ddem_non_coreg_ds, ddem_coreg_ds], start=1):
+        axis = plt.subplot2grid(grid, (0, (i - 1) * (grid[0] // 4 + 0)), rowspan=grid[0] // 2, colspan=grid[0] // 4)
+        #axis = plt.subplot(1, 2, i)
+        ddem = ddem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
+
+        lk50_outlines.plot(color="#ADB7D2", edgecolor="k",alpha=0.5, linewidth=0.5,  ax=axis)
+
+        plt.imshow(ddem, extent=[bounds.left, bounds.right, bounds.bottom, bounds.top], cmap=DH_CMAP.get_cmap(), norm=DH_CMAP.norm, zorder=1)
+        for polygon in viewshed:
+            plt.plot(*polygon.exterior.xy, linestyle="--", color="black", zorder=2, linewidth=1)
+        plt.quiver(image_meta["easting"], image_meta["northing"], 1, 1, angles=90 - image_meta["yaw"], headwidth=3, headlength=2, width=4e-3)
+        plt.ylim(bounds.bottom, bounds.top)
+        plt.xlim(bounds.left,  bounds.right)
+
+        axis.xaxis.tick_top()
+        axis.xaxis.set_label_position("top")
+
+        xticks = axis.get_xticks()[[1, -2]]
+        yticks = axis.get_yticks()[[1, -2]]
+        if i == 1:
+            plt.xticks(xticks, labels=(xticks + 2e6).astype(int))
+            plt.yticks(yticks, labels=(yticks + 1e6).astype(int), rotation=90, va="center")
+            plt.ylabel("Northing (m)")
+            plt.xlabel("Easting (m)")
+        else:
+            inset = colorbar(axis=axis, loc=(1.01, 0.5), vmin=-1, vmax=1, height=0.5, tick_right=True, width=0.07)
+            inset.set_ylabel(r"dHdt$^{-1}$ (ma$^{-1}$)", fontsize=10)
+            plt.xticks(xticks, labels=[""] * len(xticks))
+            plt.yticks(yticks, labels=[""] * len(yticks))
+        axis.text(
+            0.01,
+            0.988,
+            "A)" if i ==1 else "B)",
+            ha="left",
+            va="top",
+            transform=axis.transAxes,
+            fontsize=12,
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8),
+        )
+
+    #terradem.error.glacier_outline_error(plot=14)
+    #plt.xlim(659300, 661000)
+    #plt.ylim(160200, 162000)
+    #plt.xlabel("Easting (m)")
+    #plt.ylabel("Northing (m)")
+    #plt.yticks(
+    #    plt.gca().get_yticks()[[1, -1]],
+    #    labels=(plt.gca().get_yticks()[[1, -1]] + 1e6).astype(int),
+    #    rotation=90,
+    #    ha="right",
+    #    va="center",
+    #)
+    #plt.xticks(plt.gca().get_xticks()[[1, -1]], labels=(plt.gca().get_xticks()[[1, -1]] + 2e6).astype(int))
+    #plt.gca().xaxis.tick_top()
+    #plt.gca().xaxis.set_label_position("top")
+    #plt.text(0.02, 0.97, "A)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
 
     plt.subplot2grid(grid, (0, 1 + grid[1] // 2), rowspan=grid[0] // 2, colspan=grid[0] // 2)
     plt.hist(glacier_wise_dh[list(names.keys())], bins=np.linspace(0, 0.4, 20), label=[names[col] for col in names])
     plt.ylabel("Count")
-    plt.xlabel(r"dH dt$^{-1}$ (m a$^{-1})$")
+    plt.xlabel(r"dHdt$^{-1}$ (ma$^{-1})$")
     plt.yscale("log")
     plt.gca().yaxis.tick_right()
     plt.gca().yaxis.set_label_position("right")
     plt.gca().xaxis.tick_top()
     plt.gca().xaxis.set_label_position("top")
-    plt.text(0.02, 0.97, "B)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
+    plt.text(0.02, 0.97, "C)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
     plt.ylim(1, plt.gca().get_ylim()[1] * 1.1)
     plt.legend()
 
@@ -484,7 +589,7 @@ def error_ensemble():
                     plt.text(
                         0.05,
                         0.91,
-                        "C)" if i == 0 else "D)",
+                        "D)" if i == 0 else "E)",
                         transform=plt.gca().transAxes,
                         fontsize=12,
                         ha="left",
@@ -964,35 +1069,6 @@ def interpolation_before_and_after():
     plt.savefig("temp/figures/interpolation_before_and_after.jpg", dpi=900)
     plt.show()
 
-def ddem_example(station_name: str = "station_1536"):
-
-    bounds = rio.coords.BoundingBox(639450, 139000, 644500, 144000)
-
-    image_meta = pd.read_csv(terradem.files.INPUT_FILE_PATHS["swisstopo_metadata"])
-    image_meta = image_meta[image_meta["station_name"].str.contains(station_name)]
-    lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
-
-
-    viewshed = terradem.orthorectification.get_viewshed(station_name=station_name).values.ravel()
-
-    ddem_coreg_ds = rio.open(Path(terradem.files.TEMP_SUBDIRS["ddems_coreg"]).joinpath(f"{station_name}_ddem.tif"))
-    ddem_non_coreg_ds = rio.open(Path(terradem.files.TEMP_SUBDIRS["ddems_non_coreg"]).joinpath(f"{station_name}_ddem.tif"))
-
-    window = rio.windows.from_bounds(*bounds, transform=ddem_coreg_ds.transform)
-
-    for i, ddem_ds in enumerate([ddem_non_coreg_ds, ddem_coreg_ds], start=1):
-        axis = plt.subplot(1, 2, i)
-        ddem = ddem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
-
-        lk50_outlines.plot(color="#ADB7D2", edgecolor="k",alpha=0.5, linewidth=0.5,  ax=axis)
-
-        plt.imshow(ddem, extent=[bounds.left, bounds.right, bounds.bottom, bounds.top], cmap=DH_CMAP.get_cmap(), norm=DH_CMAP.norm, zorder=1)
-        for polygon in viewshed:
-            plt.plot(*polygon.exterior.xy, linestyle="--", color="black", zorder=2, linewidth=1)
-        plt.ylim(bounds.bottom, bounds.top)
-        plt.xlim(bounds.left,  bounds.right)
-        plt.quiver(image_meta["easting"], image_meta["northing"], 1, 1, angles=90 - image_meta["yaw"], headwidth=3, headlength=2, width=4e-3)
-    plt.show()
 
 @numba.njit(parallel=True)
 def downsample_nans(array: np.ndarray, downsample: int = 5):
