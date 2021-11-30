@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
-import warnings
 import cartopy.crs as ccrs
 import geopandas as gpd
 import matplotlib
@@ -29,26 +29,30 @@ import terradem.utilities
 import xdem
 
 DH_VLIM = 4
+DH_COLORS = [
+    (-DH_VLIM, "#400912"),
+    (-3, "#590C19"),
+    (-2, "#95142A"),  # crimson
+    (-0.6, "#E56B1A"),  # rust red
+    (-0.3, "#E5BD1A"),  # butterscotch
+    (-0.15, "#F4D780"),  # Sand
+    (0, "lightgray"),
+    (0.5, "royalblue"),
+    (DH_VLIM, "royalblue"),
+]
+
+
 DH_NORMALIZER = matplotlib.colors.Normalize(vmin=-DH_VLIM, vmax=DH_VLIM, clip=True)
 DH_CMAP = matplotlib.cm.ScalarMappable(
     norm=DH_NORMALIZER,
-    cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
-        "dh",
-        [
-            (DH_NORMALIZER(a), b)
-            for a, b in [
-                (-DH_VLIM, "#400912"),
-                (-3, "#590C19"),
-                (-2, "#95142A"),  # crimson
-                (-0.6, "#E56B1A"),  # rust red
-                (-0.3, "#E5BD1A"),  # butterscotch
-                (-0.15, "#F4D780"),  # Sand
-                (0, "lightgray"),
-                (0.5, "royalblue"),
-                (DH_VLIM, "royalblue"),
-            ]
-        ],
-    ),
+    cmap=matplotlib.colors.LinearSegmentedColormap.from_list("dh", [(DH_NORMALIZER(a), b) for a, b in DH_COLORS]),
+)
+
+MB_COLORS = [(v, DH_COLORS[i][1]) for i, v in enumerate([-1.3, -0.9, -0.7, -0.5, -0.2, -0.1, 0, 0.5, 1])]
+MB_NORMALIZER = matplotlib.colors.Normalize(vmin=MB_COLORS[0][0], vmax=MB_COLORS[-1][0], clip=True)
+MB_CMAP = matplotlib.cm.ScalarMappable(
+    norm=MB_NORMALIZER,
+    cmap=matplotlib.colors.LinearSegmentedColormap.from_list("mb", [(MB_NORMALIZER(a), b) for a, b in MB_COLORS]),
 )
 DH_UNIT = "ma⁻¹"
 DH_MWE_UNIT = "m w.e. a⁻¹"
@@ -63,6 +67,7 @@ def colorbar(
     width: float = 0.05,
     height: float = 0.2,
     label: str = "",
+    labelpad: float | int = 14,
     tick_right: bool = False,
 ) -> plt.Axes:
 
@@ -76,24 +81,19 @@ def colorbar(
     steps = np.linspace(vmin, vmax, 255)
     width = 0.05
     for i in steps:
-        inset.add_patch(
-            plt.Rectangle((0, i), width, steps[1] - steps[0], edgecolor="none", facecolor=DH_CMAP.to_rgba(i))
-        )
+        inset.add_patch(plt.Rectangle((0, i), width, steps[1] - steps[0], edgecolor="none", facecolor=cmap.to_rgba(i)))
 
     # axis.add_patch(plt.Rectangle((0, DH_NORMALIZER.vmax), width, steps[-1] - steps[0], edgecolor="k", facecolor="none"))
     inset.set_ylim(vmin, vmax)
     inset.set_xlim(0, width)
     inset.set_xticks([])
 
-    ylabel_props = {
-            "fontsize": 12,
-            "bbox": dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8)
-    }
+    ylabel_props = {"fontsize": 12, "bbox": dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8)}
 
     if tick_right:
         inset.yaxis.set_label_position("right")
-        #inset.set_ylabel("dHdt$^{-1}$ (ma$^{-1}$ w.e.)", rotation=270, labelpad=14, **ylabel_props)
-        inset.set_ylabel(label, rotation=270, labelpad=14, **ylabel_props)
+        # inset.set_ylabel("dHdt$^{-1}$ (ma$^{-1}$ w.e.)", rotation=270, labelpad=14, **ylabel_props)
+        inset.set_ylabel(label, rotation=270, labelpad=labelpad, **ylabel_props)
         inset.yaxis.tick_right()
     else:
         inset.set_ylabel(label, **ylabel_props)
@@ -248,19 +248,30 @@ def outline_error():
     fig = plt.figure(figsize=(8.3, 3.6))
 
     axis = plt.subplot(1, 2, 1)
-    bounds = rio.coords.BoundingBox(left=628150, right=633160,bottom=100800,top=105000)
+    bounds = rio.coords.BoundingBox(left=628150, right=633160, bottom=100800, top=105000)
     lk50_url = "/remotes/haakon/Gammalt/maud/maud/Data/SwissTerra/basedata/LK50_first_edition_compilation/LK50_first_edition_compilation.vrt"
     with rio.open(lk50_url) as raster:
-        lk50_raster = np.moveaxis(raster.read(window=rio.windows.from_bounds(*bounds, transform=raster.transform)), 0, -1)
+        lk50_raster = np.moveaxis(
+            raster.read(window=rio.windows.from_bounds(*bounds, transform=raster.transform)), 0, -1
+        )
 
     digitized_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["digitized_outlines"])
 
-    plt.imshow(lk50_raster, extent=[bounds.left, bounds.right, bounds.bottom ,bounds.top])
+    plt.imshow(lk50_raster, extent=[bounds.left, bounds.right, bounds.bottom, bounds.top])
     digitized_outlines.plot(edgecolor="red", facecolor="none", linestyle="--", ax=axis)
-    plt.text(0.008, 0.99, "A)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top", bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.2))
+    plt.text(
+        0.008,
+        0.99,
+        "A)",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        ha="left",
+        va="top",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.2),
+    )
 
     plt.xlim(bounds.left, bounds.right)
-    plt.ylim(bounds.bottom ,bounds.top)
+    plt.ylim(bounds.bottom, bounds.top)
     yticks = plt.gca().get_yticks()[[2, -2]]
     plt.yticks(yticks, (yticks + 1e6).astype(int), rotation=90, va="center")
     xticks = plt.gca().get_xticks()[[2, -3]]
@@ -294,6 +305,7 @@ def outline_error():
     plt.savefig("temp/figures/outline_error.jpg", dpi=600)
 
     plt.show()
+
 
 def elevation_change_histograms():
     data = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
@@ -363,21 +375,22 @@ def overview():
     climate = terradem.climate.mean_climate_deviation(slice(1961, 1990))
     fig = plt.figure(figsize=(8, 4.3))
 
-    with rio.open(terradem.files.TEMP_FILES["base_dem_slope"], overview_level=3) as raster:
-        slope = raster.read(1, masked=True)
-        bounds = raster.bounds
+    with rio.open(terradem.files.TEMP_FILES["base_dem_slope"], overview_level=4) as raster:
         outline = gpd.GeoSeries(
             [
                 shapely.geometry.shape(l[0])
-                for l in rio.features.shapes(slope.mask.astype("uint8"), transform=raster.transform)
+                for l in rio.features.shapes((raster.read(1) == -9999).astype("uint8"), transform=raster.transform)
                 if l[1] == 0
             ],
             crs=raster.crs,
         )
 
+    with rio.open("temp/base_dem/alos_slope.tif") as raster:
+        slope = raster.read(1, masked=True)
+        bounds = raster.bounds
+
     lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
 
-    xlim = (1900, 2021)
     colors = {
         "precipitation": "royalblue",
         "s_temperature": "red",
@@ -389,11 +402,11 @@ def overview():
     plt.imshow(
         slope, cmap="Greys", extent=[bounds.left, bounds.right, bounds.bottom, bounds.top], interpolation="bilinear"
     )
-    #total lk50_outlines.plot(ax=plt.gca(), edgecolor="black", lw=0.1)
+    # total lk50_outlines.plot(ax=plt.gca(), edgecolor="black", lw=0.1)
     plot_lk50_glaciers(lk50_outlines=lk50_outlines)
     outline.plot(ax=plt.gca(), facecolor="none", edgecolor="black")
     plt.xlim(lk50_outlines.total_bounds[[0, 2]])
-    # plt.ylim(lk50_outlines.total_bounds[[1, 3]])
+    plt.ylim(lk50_outlines.total_bounds[[1, 3]] * np.array([1, 1.2]) - np.diff(lk50_outlines.total_bounds[[1, 3]]) / 5)
     plt.xticks(plt.gca().get_xticks()[[1, -2]], (plt.gca().get_xticks()[[1, -2]] + 2e6).astype(int))
     plt.yticks(
         plt.gca().get_yticks()[[1, -3]],
@@ -404,32 +417,46 @@ def overview():
     )
     plt.text(0.5, -0.08, "Easting (m)", ha="center", va="bottom", transform=plt.gca().transAxes)
     plt.text(-0.05, 0.5, "Northing (m)", ha="right", va="center", transform=plt.gca().transAxes, rotation=90)
-    plt.text(0.02, 0.98, "A)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
+    plt.text(
+        0.01,
+        0.99,
+        "A)",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        ha="left",
+        va="top",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.2),
+    )
 
+    xlim = (1900, 2021)
     xticks = np.arange(1900, 2040, 40)
     plt.subplot2grid((2, 4), (0, 3))
     for key in ["temperature", "s_temperature"]:
         plt.plot(climate[key].rolling(10, min_periods=1).mean(), color=colors[key])
         plt.scatter(climate.index, climate[key], c=colors[key], s=0.5)
-    plt.ylabel(r"$\Delta$T ($\degree$C)")
+    plt.ylabel(r"$\Delta$T ($\degree$C)", rotation=270, labelpad=10)
     plt.xlim(xlim)
     plt.xticks(xticks, [""] * xticks.shape[0])
     plt.text(0.02, 0.97, "B)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
     plt.grid(zorder=0, alpha=0.4)
+    plt.gca().yaxis.tick_right()
+    plt.gca().yaxis.set_label_position("right")
 
     plt.subplot2grid((2, 4), (1, 3))
     plt.plot(climate["precipitation"].rolling(10, min_periods=1).mean(), color=colors["precipitation"])
     plt.scatter(climate.index, climate["precipitation"], c=colors["precipitation"], s=0.5)
-    plt.ylabel(r"$\Delta$P (mm)", labelpad=0)
     plt.xlim(xlim)
     plt.xticks(xticks)
-    plt.yticks(rotation=45)
     plt.text(0.02, 0.97, "C)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
     plt.grid(zorder=0, alpha=0.4)
+    plt.gca().yaxis.tick_right()
+    plt.gca().yaxis.set_label_position("right")
+    plt.yticks(rotation=270, va="center")
+    plt.ylabel(r"$\Delta$P (mm)", rotation=270, labelpad=20)
 
-    plt.subplots_adjust(top=0.991, bottom=0.082, left=0.0, right=0.971, hspace=0.034, wspace=0.0)
+    plt.subplots_adjust(top=0.991, bottom=0.082, left=0.05, right=0.938, hspace=0.034, wspace=0.03)
 
-    plt.savefig("temp/figures/overview.jpg", dpi=600)
+    #plt.savefig("temp/figures/overview.jpg", dpi=600)
 
     plt.show()
 
@@ -455,23 +482,40 @@ def error_ensemble():
     viewshed = terradem.orthorectification.get_viewshed(station_name=station_name).values.ravel()
 
     ddem_coreg_ds = rio.open(Path(terradem.files.TEMP_SUBDIRS["ddems_coreg"]).joinpath(f"{station_name}_ddem.tif"))
-    ddem_non_coreg_ds = rio.open(Path(terradem.files.TEMP_SUBDIRS["ddems_non_coreg"]).joinpath(f"{station_name}_ddem.tif"))
+    ddem_non_coreg_ds = rio.open(
+        Path(terradem.files.TEMP_SUBDIRS["ddems_non_coreg"]).joinpath(f"{station_name}_ddem.tif")
+    )
 
     window = rio.windows.from_bounds(*bounds, transform=ddem_coreg_ds.transform)
 
     for i, ddem_ds in enumerate([ddem_non_coreg_ds, ddem_coreg_ds], start=1):
         axis = plt.subplot2grid(grid, (0, (i - 1) * (grid[0] // 4 + 0)), rowspan=grid[0] // 2, colspan=grid[0] // 4)
-        #axis = plt.subplot(1, 2, i)
+        # axis = plt.subplot(1, 2, i)
         ddem = ddem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)
 
-        lk50_outlines.plot(color="#ADB7D2", edgecolor="k",alpha=0.5, linewidth=0.5,  ax=axis)
+        lk50_outlines.plot(color="#ADB7D2", edgecolor="k", alpha=0.5, linewidth=0.5, ax=axis)
 
-        plt.imshow(ddem, extent=[bounds.left, bounds.right, bounds.bottom, bounds.top], cmap=DH_CMAP.get_cmap(), norm=DH_CMAP.norm, zorder=1)
+        plt.imshow(
+            ddem,
+            extent=[bounds.left, bounds.right, bounds.bottom, bounds.top],
+            cmap=DH_CMAP.get_cmap(),
+            norm=DH_CMAP.norm,
+            zorder=1,
+        )
         for polygon in viewshed:
             plt.plot(*polygon.exterior.xy, linestyle="--", color="black", zorder=2, linewidth=1)
-        plt.quiver(image_meta["easting"], image_meta["northing"], 1, 1, angles=90 - image_meta["yaw"], headwidth=3, headlength=2, width=4e-3)
+        plt.quiver(
+            image_meta["easting"],
+            image_meta["northing"],
+            1,
+            1,
+            angles=90 - image_meta["yaw"],
+            headwidth=3,
+            headlength=2,
+            width=4e-3,
+        )
         plt.ylim(bounds.bottom, bounds.top)
-        plt.xlim(bounds.left,  bounds.right)
+        plt.xlim(bounds.left, bounds.right)
 
         axis.xaxis.tick_top()
         axis.xaxis.set_label_position("top")
@@ -491,7 +535,7 @@ def error_ensemble():
         axis.text(
             0.01,
             0.988,
-            "A)" if i ==1 else "B)",
+            "A)" if i == 1 else "B)",
             ha="left",
             va="top",
             transform=axis.transAxes,
@@ -499,22 +543,22 @@ def error_ensemble():
             bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8),
         )
 
-    #terradem.error.glacier_outline_error(plot=14)
-    #plt.xlim(659300, 661000)
-    #plt.ylim(160200, 162000)
-    #plt.xlabel("Easting (m)")
-    #plt.ylabel("Northing (m)")
-    #plt.yticks(
+    # terradem.error.glacier_outline_error(plot=14)
+    # plt.xlim(659300, 661000)
+    # plt.ylim(160200, 162000)
+    # plt.xlabel("Easting (m)")
+    # plt.ylabel("Northing (m)")
+    # plt.yticks(
     #    plt.gca().get_yticks()[[1, -1]],
     #    labels=(plt.gca().get_yticks()[[1, -1]] + 1e6).astype(int),
     #    rotation=90,
     #    ha="right",
     #    va="center",
-    #)
-    #plt.xticks(plt.gca().get_xticks()[[1, -1]], labels=(plt.gca().get_xticks()[[1, -1]] + 2e6).astype(int))
-    #plt.gca().xaxis.tick_top()
-    #plt.gca().xaxis.set_label_position("top")
-    #plt.text(0.02, 0.97, "A)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
+    # )
+    # plt.xticks(plt.gca().get_xticks()[[1, -1]], labels=(plt.gca().get_xticks()[[1, -1]] + 2e6).astype(int))
+    # plt.gca().xaxis.tick_top()
+    # plt.gca().xaxis.set_label_position("top")
+    # plt.text(0.02, 0.97, "A)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top")
 
     plt.subplot2grid(grid, (0, 1 + grid[1] // 2), rowspan=grid[0] // 2, colspan=grid[0] // 2)
     plt.hist(glacier_wise_dh[list(names.keys())], bins=np.linspace(0, 0.4, 20), label=[names[col] for col in names])
@@ -819,9 +863,9 @@ def dh_histogram():
 
     xticks = plt.gca().get_xticks()
 
-    #plt.xticks(xticks, labels=[r"$10^{" + str(int(n)) + "}$" for n in xticks])
+    # plt.xticks(xticks, labels=[r"$10^{" + str(int(n)) + "}$" for n in xticks])
     plt.ylabel("dHdt$^{-1}$ (ma$^{-1}$ w.e.)")
-    #plt.xlabel("Area (km²)")
+    # plt.xlabel("Area (km²)")
     plt.xlabel("Elevation (m a.s.l.")
 
     plt.show()
@@ -841,13 +885,13 @@ def west_east_transect():
     ends = subregion["easting"].max()
 
     ranges = ends - starts
-    
+
     distance = 13000
     breaks = (ranges[starts.sort_values().index].shift(1) + distance).fillna(0).cumsum()
 
     data["easting"] -= (starts - breaks)[data["subregion"]].values
 
-    #data = data[data["start_area"] > 2e5].copy().sort_values("easting")
+    # data = data[data["start_area"] > 2e5].copy().sort_values("easting")
     data.sort_values("easting", inplace=True)
 
     distances = starts.sort_values().copy()
@@ -859,18 +903,27 @@ def west_east_transect():
     data["width"] = data["start_area"] / 1e4
     data["left"] = distances[data["subregion"]].values + data["width"].cumsum()
 
-    plt.bar(data["left"] - data["width"] / 2, height=data["max_elev"] - data["min_elev"], width=data["width"], bottom=data["min_elev"], color=DH_CMAP.to_rgba(data["dh_m_we"]), zorder=2)
-    #plt.bar(data["easting"], height=data["max_elev"] - data["min_elev"], width=data["start_area"] / 1e4 + 400, bottom=data["min_elev"], color=DH_CMAP.to_rgba(data["dh_m_we"]))#, edgecolor="k", linewidth=0.3)
+    plt.bar(
+        data["left"] - data["width"] / 2,
+        height=data["max_elev"] - data["min_elev"],
+        width=data["width"],
+        bottom=data["min_elev"],
+        color=MB_CMAP.to_rgba(data["dh_m_we"]),
+        zorder=2,
+    )
+    # plt.bar(data["easting"], height=data["max_elev"] - data["min_elev"], width=data["start_area"] / 1e4 + 400, bottom=data["min_elev"], color=DH_CMAP.to_rgba(data["dh_m_we"]))#, edgecolor="k", linewidth=0.3)
 
     for i, subset in data.groupby("subregion"):
-        #bins = np.digitize(subset["left"], np.linspace(subset["left"].min(), subset["left"].max(), num=25))
+        # bins = np.digitize(subset["left"], np.linspace(subset["left"].min(), subset["left"].max(), num=25))
 
-        #easting_normalized = subset.groupby(bins).mean().rolling(2, min_periods=1).mean()
+        # easting_normalized = subset.groupby(bins).mean().rolling(2, min_periods=1).mean()
         easting_normalized = subset.rolling(120, min_periods=1).mean()
 
         plt.plot(easting_normalized["left"], easting_normalized["med_elev"], c="k")
 
-    colorbar(loc=(1.08, 0.6), label="dHdt$^{-1}$ (ma$^{-1}$ w.e.)", height=0.4, vmax=1, vmin=-2)
+    inset = colorbar(cmap=MB_CMAP, loc=(0.98, 0.6), label="dHdt$^{-1}$ (ma$^{-1}$ w.e.)", height=0.4, vmax=0.5, vmin=-1.3, tick_right=True, labelpad=24)
+    plt.setp(inset.yaxis.get_majorticklabels(), rotation=270, va="center")
+    
 
     subregion = data.groupby("subregion")
     ylim = plt.gca().get_ylim()
@@ -888,23 +941,31 @@ def west_east_transect():
         mean_dh = str(round(subregion_data["dh_m_we"].mean(), 2))
         mean_dh += "0" * (5 - len(mean_dh))
 
-        newline = '\n' if i not in ['A', 'B'] else ' '
+        newline = "\n" if i not in ["A", "B"] else " "
 
         plt.annotate(
-                (f"{subregion_names[i]}\n{round(subregion_data['start_area'].sum() * 1e-6)} km²\n{mean_dh}{newline}{DH_MWE_UNIT}"), 
-                (np.mean([data.loc[data["subregion"] == i, "left"].min(), data.loc[data["subregion"] == i, "left"].max()], axis=0), ylim[0] + 100), ha="center", path_effects=[matplotlib.patheffects.Stroke(linewidth=1, foreground="w"), matplotlib.patheffects.Normal()])
+            (
+                f"{subregion_names[i]}\n{round(subregion_data['start_area'].sum() * 1e-6)} km²\n{mean_dh}{newline}{DH_MWE_UNIT}"
+            ),
+            (
+                np.mean(
+                    [data.loc[data["subregion"] == i, "left"].min(), data.loc[data["subregion"] == i, "left"].max()],
+                    axis=0,
+                ),
+                ylim[0] + 100,
+            ),
+            ha="center",
+            path_effects=[matplotlib.patheffects.Stroke(linewidth=1, foreground="w"), matplotlib.patheffects.Normal()],
+        )
     plt.ylim(ylim)
 
-    xticks = plt.gca().get_xticks()
-    plt.xticks(xticks, [""] * len(xticks))
+    #xticks = plt.gca().get_xticks()
+    #plt.xticks(xticks, [""] * len(xticks))
+    plt.xticks([])
     plt.ylabel("Elevation (m a.s.l.)")
-
 
     plt.savefig("temp/figures/west_east_transect.jpg", dpi=600)
     plt.show()
-
-    print(data)
-
 
 def regional_dh():
     data = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
@@ -956,7 +1017,7 @@ def regional_dh():
     grouped["size"] = size_func(grouped["area_km2"])
 
     # cmap = matplotlib.cm.ScalarMappable(norm=matplotlib.colors.Normalize(vmin=-1, vmax=1), cmap="RdBu")
-    grouped["color"] = grouped["dh_m_we"].apply(DH_CMAP.to_rgba)
+    grouped["color"] = grouped["dh_m_we"].apply(MB_CMAP.to_rgba)
 
     plt.figure(figsize=(8, 5), dpi=200)
     plot_base_dem_slope()
@@ -968,9 +1029,7 @@ def regional_dh():
         c=grouped["color"],
         edgecolors="k",
         alpha=0.9,
-        vmin=-1,
-        vmax=0.5,
-        cmap=DH_CMAP,
+        cmap=MB_CMAP,
     )
     for _, row in grouped.iterrows():
         text = str(round(row["dh_m_we"], 2))
@@ -985,7 +1044,7 @@ def regional_dh():
         )
     # print(DH_CMAP.set_clim(-1, 0.2))
     # cbar = plt.colorbar(DH_CMAP)
-    inset = colorbar(DH_CMAP, height=0.3, loc=(0.03, 0.65), vmax=0.2, vmin=-0.75)
+    inset = colorbar(MB_CMAP, height=0.3, loc=(0.03, 0.65), vmax=0.2, vmin=-0.75)
     inset.yaxis.set_label_position("right")
     inset.set_ylabel("dHdt$^{-1}$ (" + DH_MWE_UNIT + ")", rotation=270, labelpad=14)
     inset.yaxis.tick_right()
