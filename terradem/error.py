@@ -12,6 +12,7 @@ from typing import overload
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import matplotlib.patheffects
 import numpy as np
 import pandas as pd
 import rasterio as rio
@@ -592,7 +593,7 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
         
         if plot is not None and plot == j:
             for poly in _iter_geom(lk50_glacier):
-                plt.plot(*poly.exterior.xy, color="blue", linestyle="--")
+                plt.plot(*poly.exterior.xy, color="darkslategrey", linestyle="--")
             for line in _iter_geom(ortho_glacier):
                 plt.plot(*line.xy, color="orange")
 
@@ -628,7 +629,9 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
             if plot is not None and plot == j:
                 plt.plot(*ortho_line.xy, color="red", linewidth=2)
                 plt.plot(*lk50_line.xy, color="blue", linewidth=2)
-                plt.plot(*min([ortho_line, lk50_line], key=lambda l: l.length).xy, color="black", linewidth=3, solid_capstyle="round")
+                plt.plot(*min([ortho_line, lk50_line], key=lambda l: l.length).xy, color="white", linewidth=3, solid_capstyle="round")
+
+                plt.scatter(centroid.x, centroid.y, marker="x", color="r", zorder=4, s=60, path_effects=[matplotlib.patheffects.Stroke(linewidth=2, foreground="k"), matplotlib.patheffects.Normal()])
 
         if plot is not None and plot == j:
             return

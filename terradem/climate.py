@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import requests
+import pyproj
 
 METEOSWISS_STATIONS = [
     "ALT",
@@ -52,11 +53,23 @@ def read_meteoswiss_data(url: str) -> pd.DataFrame:
     header = True
     station = ""
     altitude: float = np.nan
+    easting: float = np.nan
+    northing: float = np.nan
+
+    wgs84_to_lv03 = pyproj.Transformer.from_crs(4326, 21781)
     for line in response.text.splitlines():
         if "Station:" in line:
             station = line.replace("Station:", "").strip()
         elif "Altitude [m asl]:" in line:
             altitude = float(line.replace("Altitude [m asl]:", "").replace(" m", ""))
+        elif "Coordinates:" in line:
+            lat_str, lon_str = line.replace("Coordinates:", "").replace("' N", "").replace("' E", "").strip().split("/")
+            lat_parts = lat_str.split("°", maxsplit=2)
+            lon_parts = lon_str.split("°", maxsplit=2)
+            lat = float(lat_parts[0]) + float(lat_parts[1]) / 60
+            lon = float(lon_parts[0]) + float(lon_parts[1]) / 60
+            easting, northing = wgs84_to_lv03.transform(lat, lon)
+
         if header and not all(s in line for s in ["Year", "Month"]):
             continue
         header = False
@@ -65,6 +78,8 @@ def read_meteoswiss_data(url: str) -> pd.DataFrame:
     data = pd.read_csv(io.StringIO(text), sep=r"\s+").astype(float)
     data["station"] = station
     data["altitude"] = altitude
+    data["easting"] = easting
+    data["northing"] = northing
 
     return data
 
