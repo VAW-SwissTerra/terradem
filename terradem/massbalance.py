@@ -19,6 +19,9 @@ import terradem.metadata
 ICE_DENSITY_CONVERSION = 0.85
 ICE_DENSITY_ERROR = 0.06
 
+STANDARD_START_YEAR = 1931
+STANDARD_END_YEAR = 2016
+
 def read_mb_index() -> pd.DataFrame:
 
     data = pd.read_csv(
@@ -33,13 +36,11 @@ def read_mb_index() -> pd.DataFrame:
 
 
 def match_zones() -> Callable[[float, float, float, float], tuple[float, str]]:
-    standard_start_year = 1930
-    standard_end_year = 2020
     mb = read_mb_index().cumsum()
 
     standard_mb = pd.Series(
         index=mb.columns,
-        data=np.diff(mb.T[[standard_start_year, standard_end_year]], axis=1).ravel(),
+        data=np.diff(mb.T[[STANDARD_START_YEAR, STANDARD_END_YEAR]], axis=1).ravel(),
     )
 
     zones = sorted(mb.columns, key=lambda x: len(x), reverse=True)
@@ -81,7 +82,7 @@ def match_zones() -> Callable[[float, float, float, float], tuple[float, str]]:
         # Calculate the mass balance of that zone for the given start and end year
         actual_mb = mb.loc[int(end_year), mb_zone] - mb.loc[int(start_year), mb_zone]
 
-        # Calculate the conversion factor to the standard_start_year--standard_end_year
+        # Calculate the conversion factor to the STANDARD_START_YEAR--STANDARD_END_YEAR
         factor = standard_mb[mb_zone] / actual_mb
 
         return factor, zone
@@ -127,8 +128,6 @@ def get_volume_change() -> None:
 
 
 def get_corrections():
-    standard_start_year = 1930
-    standard_end_year = 2020
     mb_index = read_mb_index().cumsum()
 
     dirpath = pathlib.Path(terradem.files.TEMP_SUBDIRS["tcorr_meta_coreg"])
@@ -147,7 +146,7 @@ def get_corrections():
 
     for zone, data in corrections.groupby("sgi_zone", as_index=False):
         corrections.loc[data.index, "masschange_standard"] = (
-            mb_index.loc[standard_start_year, zone] - mb_index.loc[standard_end_year, zone]
+            mb_index.loc[STANDARD_START_YEAR, zone] - mb_index.loc[STANDARD_END_YEAR, zone]
         )
 
         corrections.loc[data.index, "masschange_actual"] = (

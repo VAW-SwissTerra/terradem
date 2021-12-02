@@ -142,6 +142,6 @@ def mean_climate_deviation(climate_interval: slice = slice(1961, 1990)) -> pd.Da
     means["w_temperature"] = winter["temperature"]
 
     all_except_elev = means.columns[means.columns != "altitude"]
-    means[all_except_elev] -= means.loc[1991:2020, all_except_elev].mean(axis=0)
+    means[all_except_elev] -= means.loc[climate_interval, all_except_elev].mean(axis=0)
 
     return means

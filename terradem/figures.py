@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import warnings
 from pathlib import Path
 
@@ -19,6 +20,7 @@ import rasterio as rio
 import shapely.geometry
 import shapely.ops
 import skimage.exposure
+from tqdm import tqdm
 
 import terradem.climate
 import terradem.error
@@ -63,6 +65,7 @@ IMAGE_EXAMPLE_BOUNDS = rio.coords.BoundingBox(left=6.70e5, bottom=1.567e5, right
 INTERPOLATION_BEFORE_AFTER_BOUNDS = rio.coords.BoundingBox(632760, 132950, 665800, 174560)
 LK50_EXAMPLE_BOUNDS = rio.coords.BoundingBox(left=628150, right=633160, bottom=100800, top=105000)
 OUTLINE_ERROR_BOUNDS = rio.coords.BoundingBox(left=659300, right=661000, bottom=160200, top=162000)
+
 
 def colorbar(
     cmap: matplotlib.cm.ScalarMappable = DH_CMAP,
@@ -249,7 +252,7 @@ def temporal_correction():
     print(tcorr_meta)
 
 
-def outline_error():
+def outline_error(show: bool = True):
 
     fig = plt.figure(figsize=(8.3, 3.8))
 
@@ -263,11 +266,11 @@ def outline_error():
 
     digitized_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["digitized_outlines"])
 
-    def show(axis):
+    def imshow(axis):
         axis.imshow(lk50_raster, extent=[bounds.left, bounds.right, bounds.bottom, bounds.top])
         digitized_outlines.plot(edgecolor="red", facecolor="none", linestyle="--", ax=axis)
 
-    show(axis)
+    imshow(axis)
     plt.text(
         0.008,
         0.99,
@@ -293,7 +296,7 @@ def outline_error():
     axis_xmin = -0.03
     axis_size = 0.4
     inset = axis.inset_axes([axis_xmin, 0.0, axis_size, axis_size], transform=axis.transAxes)
-    show(inset)
+    imshow(inset)
     size = 400
     ymin = 103550
     xmin = 629200
@@ -304,7 +307,9 @@ def outline_error():
 
     ax_to_coord = lambda coord: axis.transData.inverted().transform(axis.transAxes.transform(coord))
 
-    plot_line = lambda c_from, c_to: axis.plot([ax_to_coord(c_from)[0], c_to[0]], [ax_to_coord(c_from)[1], c_to[1]], color="k", linestyle=":")
+    plot_line = lambda c_from, c_to: axis.plot(
+        [ax_to_coord(c_from)[0], c_to[0]], [ax_to_coord(c_from)[1], c_to[1]], color="k", linestyle=":"
+    )
 
     plot_line((axis_xmin, axis_size), (xmin, ymin + size))
     plot_line((axis_size + axis_xmin * 2, axis_size), (xmin + size, ymin + size))
@@ -312,12 +317,10 @@ def outline_error():
     plot_line((axis_xmin, 0), (xmin, ymin))
     axis.add_patch(plt.Rectangle((xmin, ymin), size, size, facecolor="none", edgecolor="k"))
 
-
     plt.subplot(1, 2, 2)
     bounds = OUTLINE_ERROR_BOUNDS
     with rio.open(lk50_url) as raster:
-        lk50_raster = np.mean(
-            raster.read(window=rio.windows.from_bounds(*bounds, transform=raster.transform)), axis=0)
+        lk50_raster = np.mean(raster.read(window=rio.windows.from_bounds(*bounds, transform=raster.transform)), axis=0)
     plt.imshow(lk50_raster, extent=[bounds.left, bounds.right, bounds.bottom, bounds.top], cmap="Greys_r")
     terradem.error.glacier_outline_error(plot=14)
     plt.xlim(OUTLINE_ERROR_BOUNDS.left, OUTLINE_ERROR_BOUNDS.right)
@@ -336,12 +339,22 @@ def outline_error():
     plt.gca().xaxis.set_label_position("top")
     plt.gca().yaxis.tick_right()
     plt.gca().yaxis.set_label_position("right")
-    plt.text(0.008, 0.99, "B)", transform=plt.gca().transAxes, fontsize=12, ha="left", va="top",bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.2))
+    plt.text(
+        0.008,
+        0.99,
+        "B)",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        ha="left",
+        va="top",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.2),
+    )
 
     plt.tight_layout()
     plt.savefig("temp/figures/outline_error.jpg", dpi=600)
 
-    plt.show()
+    if show:
+        plt.show()
 
 
 def elevation_change_histograms():
@@ -407,7 +420,7 @@ def plot_lk50_glaciers(axis: plt.Axes | None = None, lk50_outlines: gpd.GeoDataF
     lk50_outlines.plot(ax=axis, edgecolor="black", lw=0.1)  # , column="subregion")
 
 
-def overview():
+def overview(show: bool = True):
 
     climate = terradem.climate.mean_climate_deviation(slice(1961, 1990))
     fig = plt.figure(figsize=(8, 4.3))
@@ -415,7 +428,7 @@ def overview():
     image_meta = pd.read_csv(terradem.files.INPUT_FILE_PATHS["swisstopo_metadata"])
     image_meta["year"] = pd.to_datetime(image_meta["date"]).dt.year
 
-    #bins = np.r_[[image_meta["year"].min()], np.percentile(image_meta["year"], [25, 50, 75]), [image_meta["year"].max()]].astype(int)
+    # bins = np.r_[[image_meta["year"].min()], np.percentile(image_meta["year"], [25, 50, 75]), [image_meta["year"].max()]].astype(int)
     bins = np.linspace(image_meta["year"].min(), image_meta["year"].max(), 5).astype(int)
 
     image_meta["year_bin"] = np.digitize(image_meta["year"], bins)
@@ -425,17 +438,17 @@ def overview():
     norm = matplotlib.colors.Normalize(vmin=1, vmax=bins.size - 1)
     image_year_cmap = matplotlib.cm.ScalarMappable(
         norm=norm,
-        cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
-            "years",
-            [(norm(a), b) for a, b in [
-                (1, "green"),
-                (2, "lightseagreen"),
-                (3, "orange"),
-                (4, "gold"),
-            ]])
+         cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
+             "years",
+             [(norm(a), b) for a, b in [
+                 (1, "green"),
+                 (2, "lightseagreen"),
+                 (3, "orange"),
+                 (4, "gold"),
+             ]])
     )
 
-    #with rio.open(terradem.files.TEMP_FILES["base_dem_slope"], overview_level=4) as raster:
+    # with rio.open(terradem.files.TEMP_FILES["base_dem_slope"], overview_level=4) as raster:
     #    outline = gpd.GeoSeries(
     #        [
     #            shapely.geometry.shape(l[0])
@@ -448,7 +461,6 @@ def overview():
     with rio.open("temp/base_dem/alos_slope.tif") as raster:
         slope = raster.read(1, masked=True)
         bounds = raster.bounds
-
 
     lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
     outline = gpd.read_file("ch_bnd/ch.shp").to_crs(lk50_outlines.crs)
@@ -472,14 +484,46 @@ def overview():
     plot_lk50_glaciers(lk50_outlines=lk50_outlines)
     outline.plot(ax=plt.gca(), facecolor="none", edgecolor="black")
 
-    plt.scatter(image_meta["easting"], image_meta["northing"], s=2, alpha=0.2, edgecolors="none", cmap=image_year_cmap.get_cmap(), norm=image_year_cmap.norm, c=image_meta["year_bin"])
+    plt.scatter(
+        image_meta["easting"],
+        image_meta["northing"],
+        s=2,
+        alpha=0.2,
+        edgecolors="none",
+        cmap=image_year_cmap.get_cmap(),
+        norm=image_year_cmap.norm,
+        c=image_meta["year_bin"],
+    )
 
-    for i, box_bounds in enumerate([IMAGE_EXAMPLE_BOUNDS, INTERPOLATION_BEFORE_AFTER_BOUNDS, LK50_EXAMPLE_BOUNDS, OUTLINE_ERROR_BOUNDS]):
-        plt.plot(*shapely.geometry.box(*box_bounds).exterior.xy, zorder=3, color="red", lw=1, path_effects=[matplotlib.patheffects.Stroke(foreground="k", linewidth=1), matplotlib.patheffects.Normal()])
-        plt.annotate("abcdef"[i], (box_bounds.left, box_bounds.top), va="bottom", ha="center", color="white", path_effects=[matplotlib.patheffects.Stroke(foreground="k", linewidth=2), matplotlib.patheffects.Normal()])
+    for i, box_bounds in enumerate(
+        [IMAGE_EXAMPLE_BOUNDS, INTERPOLATION_BEFORE_AFTER_BOUNDS, LK50_EXAMPLE_BOUNDS, OUTLINE_ERROR_BOUNDS]
+    ):
+        plt.plot(
+            *shapely.geometry.box(*box_bounds).exterior.xy,
+            zorder=3,
+            color="red",
+            lw=1,
+            path_effects=[matplotlib.patheffects.Stroke(foreground="k", linewidth=1), matplotlib.patheffects.Normal()],
+        )
+        plt.annotate(
+            "abcdef"[i],
+            (box_bounds.left, box_bounds.top),
+            va="bottom",
+            ha="center",
+            color="white",
+            path_effects=[matplotlib.patheffects.Stroke(foreground="k", linewidth=2), matplotlib.patheffects.Normal()],
+        )
 
     weather_stations = terradem.climate.read_all_data().groupby("station").mean()
-    handle = plt.scatter(weather_stations["easting"], weather_stations["northing"], marker="^", facecolor="none",edgecolors="k", s=40, label="Weather station")
+    handle = plt.scatter(
+        weather_stations["easting"],
+        weather_stations["northing"],
+        marker="^",
+        facecolor="none",
+        edgecolors="k",
+        s=40,
+        label="Weather station",
+    )
 
     plt.xlim(lk50_outlines.total_bounds[[0, 2]])
     plt.ylim(lk50_outlines.total_bounds[[1, 3]] * np.array([1, 1.2]) - np.diff(lk50_outlines.total_bounds[[1, 3]]) / 5)
@@ -538,10 +582,11 @@ def overview():
 
     plt.savefig("temp/figures/overview.jpg", dpi=600)
 
-    plt.show()
+    if show:
+        plt.show()
 
 
-def error_ensemble():
+def error_ensemble(show: bool = True):
     fig = plt.figure(figsize=(8, 5), dpi=200)
     glacier_wise_dh = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
 
@@ -725,10 +770,11 @@ def error_ensemble():
                     plt.gca().yaxis.set_label_position("right")
     plt.subplots_adjust(left=0.065, bottom=0.09, right=0.92, top=0.905, wspace=0, hspace=0.2)
     plt.savefig("temp/figures/error_approach_ensemble.jpg", dpi=600)
-    plt.show()
+    if show:
+        plt.show()
 
 
-def historic_images():
+def historic_images(show: bool = True):
     sgi_2016 = gpd.read_file(terradem.files.INPUT_FILE_PATHS["sgi_2016"])
     lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"]).to_crs(sgi_2016.crs)
     image_meta = pd.read_csv(terradem.files.INPUT_FILE_PATHS["swisstopo_metadata"])
@@ -929,7 +975,8 @@ def historic_images():
     # plt.ylim(-1, 2)
     plt.subplots_adjust(top=0.995, bottom=0.087, left=0.04, right=0.995, hspace=0.0, wspace=0.05)
     plt.savefig("temp/figures/image_examples.jpg", dpi=600)
-    plt.show()
+    if show:
+        plt.show()
 
 
 def dh_histogram():
@@ -951,7 +998,7 @@ def dh_histogram():
     plt.show()
 
 
-def west_east_transect():
+def west_east_transect(show: bool = True):
     warnings.simplefilter("error")
     data = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
 
@@ -1053,10 +1100,11 @@ def west_east_transect():
     plt.ylabel("Elevation (m a.s.l.)")
 
     plt.savefig("temp/figures/west_east_transect.jpg", dpi=600)
-    plt.show()
+    if show:
+        plt.show()
 
 
-def regional_dh():
+def regional_dh(show: bool = True):
     data = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
 
     # Take the first two letters of the sgi-id and hash them (creating a unique int; good for grouping)
@@ -1166,11 +1214,12 @@ def regional_dh():
 
     plt.savefig("temp/figures/dh_bubbles.jpg", dpi=600)
 
-    plt.show()
+    if show:
+        plt.show()
     # print(data.select_dtypes(np.number).groupby("i").aggregate(lambda df: np.average(df, weights=data.loc[df.index, "start_area"], axis=0)))
 
 
-def interpolation_before_and_after():
+def interpolation_before_and_after(show: bool = True):
 
     bounds = INTERPOLATION_BEFORE_AFTER_BOUNDS
 
@@ -1215,7 +1264,9 @@ def interpolation_before_and_after():
 
     plt.subplots_adjust(top=0.99, bottom=0.09, left=0.095, right=0.982, hspace=0.2, wspace=0.0)
     plt.savefig("temp/figures/interpolation_before_and_after.jpg", dpi=900)
-    plt.show()
+
+    if show:
+        plt.show()
 
 
 @numba.njit(parallel=True)
@@ -1256,3 +1307,18 @@ def downsample_nans(array: np.ndarray, downsample: int = 5):
 
     return new_array.reshape(new_array_shape)
 
+
+def render_all_figures():
+    for func in tqdm(
+        [
+            overview,
+            historic_images,
+            error_ensemble,
+            outline_error,
+            regional_dh,
+            interpolation_before_and_after,
+            west_east_transect,
+        ],
+        desc="Rendering figures",
+    ):
+        func(show=False)
