@@ -20,6 +20,8 @@ import rasterio as rio
 import shapely.geometry
 import shapely.ops
 import skimage.exposure
+import sklearn
+import sklearn.pipeline
 from tqdm import tqdm
 
 import terradem.climate
@@ -58,6 +60,7 @@ MB_CMAP = matplotlib.cm.ScalarMappable(
 )
 DH_UNIT = "ma⁻¹"
 DH_MWE_UNIT = "m w.e. a⁻¹"
+DH_MWE_LABEL = r"dHdt$^{-1}$ (ma$^{-1}$ w.e.)"
 
 
 IMAGE_EXAMPLE_BOUNDS = rio.coords.BoundingBox(left=6.70e5, bottom=1.567e5, right=6.76e5, top=1.68e5)
@@ -78,6 +81,7 @@ def colorbar(
     label: str = "",
     labelpad: float | int = 14,
     tick_right: bool = False,
+    rotate_ticks: bool = True,
 ) -> plt.Axes:
 
     vmin = vmin or cmap.norm.vmin
@@ -97,15 +101,20 @@ def colorbar(
     inset.set_xlim(0, width)
     inset.set_xticks([])
 
-    ylabel_props = {"fontsize": 12, "bbox": dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8)}
+    ylabel_props = {"fontsize": 10, "bbox": dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8), "labelpad": labelpad}
 
     if tick_right:
         inset.yaxis.set_label_position("right")
         # inset.set_ylabel("dHdt$^{-1}$ (ma$^{-1}$ w.e.)", rotation=270, labelpad=14, **ylabel_props)
-        inset.set_ylabel(label, rotation=270, labelpad=labelpad, **ylabel_props)
+        inset.set_ylabel(label, rotation=90, **ylabel_props)
         inset.yaxis.tick_right()
     else:
-        inset.set_ylabel(label, **ylabel_props)
+        inset.set_ylabel(label,  **ylabel_props)
+
+    if rotate_ticks:
+        inset.tick_params(axis="y", labelrotation=90)
+        for tick in inset.get_yticklabels():
+            tick.set_verticalalignment("center")
 
     return inset
 
@@ -380,7 +389,7 @@ def elevation_change_histograms():
     )
 
     plt.xticks(ticks=plt.gca().get_xticks(), labels=[f"$10^{int(area)}$" for area in plt.gca().get_xticks()])
-    plt.ylabel(r"dH dt$^{-1}$ (m a$^{-1})$")
+    plt.ylabel(DH_MWE_LABEL)
     plt.xlabel("Area (m²)")
     plt.tight_layout()
 
@@ -438,14 +447,18 @@ def overview(show: bool = True):
     norm = matplotlib.colors.Normalize(vmin=1, vmax=bins.size - 1)
     image_year_cmap = matplotlib.cm.ScalarMappable(
         norm=norm,
-         cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
-             "years",
-             [(norm(a), b) for a, b in [
-                 (1, "green"),
-                 (2, "lightseagreen"),
-                 (3, "orange"),
-                 (4, "gold"),
-             ]])
+        cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
+            "years",
+            [
+                (norm(a), b)
+                for a, b in [
+                    (1, "green"),
+                    (2, "lightseagreen"),
+                    (3, "orange"),
+                    (4, "gold"),
+                ]
+            ],
+        ),
     )
 
     # with rio.open(terradem.files.TEMP_FILES["base_dem_slope"], overview_level=4) as raster:
@@ -653,8 +666,8 @@ def error_ensemble(show: bool = True):
             plt.ylabel("Northing (m)")
             plt.xlabel("Easting (m)")
         else:
-            inset = colorbar(axis=axis, loc=(1.01, 0.5), vmin=-1, vmax=1, height=0.5, tick_right=True, width=0.07)
-            inset.set_ylabel(r"dHdt$^{-1}$ (ma$^{-1}$)", fontsize=10)
+            inset = colorbar(axis=axis, loc=(1.01, 0.5), vmin=-1, vmax=1, height=0.5, tick_right=True, width=0.07, rotate_ticks=False, labelpad=5)
+            inset.set_ylabel(DH_MWE_LABEL, fontsize=10)
             plt.xticks(xticks, labels=[""] * len(xticks))
             plt.yticks(yticks, labels=[""] * len(yticks))
         axis.text(
@@ -768,7 +781,7 @@ def error_ensemble(show: bool = True):
                 if i == 1:
                     plt.gca().yaxis.tick_right()
                     plt.gca().yaxis.set_label_position("right")
-    plt.subplots_adjust(left=0.065, bottom=0.09, right=0.92, top=0.905, wspace=0, hspace=0.2)
+    plt.subplots_adjust(left=0.065, bottom=0.09, right=0.92, top=0.905, wspace=0, hspace=0.065)
     plt.savefig("temp/figures/error_approach_ensemble.jpg", dpi=600)
     if show:
         plt.show()
@@ -1051,14 +1064,15 @@ def west_east_transect(show: bool = True):
     inset = colorbar(
         cmap=MB_CMAP,
         loc=(0.98, 0.6),
-        label="dHdt$^{-1}$ (ma$^{-1}$ w.e.)",
+        label=DH_MWE_LABEL,
         height=0.4,
         vmax=0.5,
         vmin=-1.3,
         tick_right=True,
-        labelpad=24,
+        labelpad=7,
+        rotate_ticks=True,
     )
-    plt.setp(inset.yaxis.get_majorticklabels(), rotation=270, va="center")
+    #plt.setp(inset.yaxis.get_majorticklabels(), rotation=270, va="center")
 
     subregion = data.groupby("subregion")
     ylim = plt.gca().get_ylim()
@@ -1098,6 +1112,7 @@ def west_east_transect(show: bool = True):
     # plt.xticks(xticks, [""] * len(xticks))
     plt.xticks([])
     plt.ylabel("Elevation (m a.s.l.)")
+    plt.subplots_adjust(left=0.08, bottom=0.04, right=0.914, top=0.963)
 
     plt.savefig("temp/figures/west_east_transect.jpg", dpi=600)
     if show:
@@ -1181,21 +1196,21 @@ def regional_dh(show: bool = True):
         )
     # print(DH_CMAP.set_clim(-1, 0.2))
     # cbar = plt.colorbar(DH_CMAP)
-    inset = colorbar(MB_CMAP, height=0.3, loc=(0.03, 0.65), vmax=0.2, vmin=-0.75)
-    inset.yaxis.set_label_position("right")
-    inset.set_ylabel("dHdt$^{-1}$ (" + DH_MWE_UNIT + ")", rotation=270, labelpad=14)
-    inset.yaxis.tick_right()
+    colorbar(MB_CMAP, height=0.3, loc=(0.03, 0.65), vmax=0.2, vmin=-0.75, tick_right=True, label=DH_MWE_LABEL, rotate_ticks=False, labelpad=5)
+    #inset.yaxis.set_label_position("right")
+    #inset.set_ylabel("dHdt$^{-1}$ (" + DH_MWE_UNIT + ")", rotation=270, labelpad=14)
+    #inset.yaxis.tick_right()
 
     legend_items = (
         # Add empty patch as a header
         {"Size (km²)": matplotlib.patches.Patch(facecolor="none", edgecolor="none")}  # Add an empty patch as a header
         | {
             f"{area_km2} km²": plt.scatter(0, 0, s=size_func(area_km2), c="white", edgecolor="k")
-            for area_km2 in [10, 400]
+            for area_km2 in [10, 50, 400]
         }
     )
     legend_items_list = list(legend_items.items())
-    legend_items_list.insert(-1, ("", matplotlib.patches.Patch(facecolor="none", edgecolor="none")))
+    #legend_items_list.insert(-1, ("", matplotlib.patches.Patch(facecolor="none", edgecolor="none")))
     legend_items = dict(legend_items_list)
 
     plt.ylim(61995, 302000)
@@ -1209,7 +1224,7 @@ def regional_dh(show: bool = True):
     plt.ylabel("Northing (m)")
     plt.xlabel("Easting (m)")
 
-    plt.legend(labels=legend_items.keys(), handles=legend_items.values(), borderpad=0.9)
+    plt.legend(labels=legend_items.keys(), handles=legend_items.values(), borderpad=0.9, labelspacing=1.3)
     plt.tight_layout()
 
     plt.savefig("temp/figures/dh_bubbles.jpg", dpi=600)
@@ -1254,7 +1269,7 @@ def interpolation_before_and_after(show: bool = True):
 
         plt.text(0.03, 0.98, "A)" if i == 1 else "B)", ha="left", va="top", transform=plt.gca().transAxes, fontsize=12)
         if i == 1:
-            inset = colorbar(label="dHdt$^{-1}$ (ma$^{-1}$)", tick_right=True, loc=(0.02, 0.7), vmax=1)
+            inset = colorbar(label=DH_MWE_LABEL, tick_right=True, loc=(0.02, 0.7), vmax=1, rotate_ticks=False, labelpad=5)
             inset.set_yticks([-4, -1, 0, 1])
             inset.set_yticklabels(["$<-4$", "-1", "0", ">1"])
             plt.ylabel("Northing (m)")
@@ -1265,6 +1280,143 @@ def interpolation_before_and_after(show: bool = True):
     plt.subplots_adjust(top=0.99, bottom=0.09, left=0.095, right=0.982, hspace=0.2, wspace=0.0)
     plt.savefig("temp/figures/interpolation_before_and_after.jpg", dpi=900)
 
+    if show:
+        plt.show()
+
+
+def mb_correlations(show: bool = True):
+    glacier_wise_dh = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
+
+    debris_cover = gpd.read_file("data/external/shapefiles/SGI_2016_debriscover.shp").dissolve(by="sgi-id")
+    sgi_2016 = gpd.read_file(terradem.files.INPUT_FILE_PATHS["sgi_2016"]).set_index("sgi-id")
+
+    debris_cover = debris_cover[debris_cover.index.isin(sgi_2016.index)]
+
+    sgi_2016["debris_m2"] = np.nan
+    sgi_2016.loc[debris_cover.index, "debris_m2"] = debris_cover.area.values
+    sgi_2016["debris_frac"] = np.clip(100 * sgi_2016["debris_m2"] / sgi_2016.area, 0, 100)
+
+    glacier_wise_dh["sgi_2016"] = glacier_wise_dh["sgi_2016_ids"].str.split(",", expand=True).iloc[:, 0]
+    glacier_wise_dh["n_samples"] = (1e5 * glacier_wise_dh["start_area"] / glacier_wise_dh["start_area"].max()).astype(
+        int
+    )
+    glacier_wise_dh = glacier_wise_dh.merge(sgi_2016["debris_frac"], left_on="sgi_2016", right_index=True)
+
+    glacier_wise_dh = glacier_wise_dh.select_dtypes(np.number)
+    #glacier_wise_dh = glacier_wise_dh[
+    #    glacier_wise_dh["dh_m_we"].abs() < (xdem.spatialstats.nmad(glacier_wise_dh["dh_m_we"]) * 3)
+    #]
+
+    glacier_wise_dh["area_log10"] = np.log10(glacier_wise_dh["start_area"] / 1e6)
+    glacier_wise_dh["debris_log10"] = np.log10(glacier_wise_dh["debris_frac"] + 1e-4)
+
+    weighted = pd.DataFrame(
+        np.repeat(glacier_wise_dh.values, glacier_wise_dh["n_samples"].values, axis=0),
+        columns=glacier_wise_dh.columns,
+        dtype="float64",
+    )
+
+    labels = {
+        "med_elev": "Median elevation (m a.s.l.)",
+        "area_log10": "Area (km²)",
+        "modern_slope_lower_10percent": "Lower 10% slope (°)",
+        "debris_log10": "Debris cover (%)",
+    }
+
+    plt.figure(figsize=(8.3, 5))
+
+    #nmad = xdem.spatialstats.nmad(glacier_wise_dh["dh_m_we"])
+    percentile = 99
+    lower = np.nanpercentile(weighted["dh_m_we"], (100 - percentile) / 2)
+    upper = np.nanpercentile(weighted["dh_m_we"], percentile + (100 - percentile) / 2)
+
+    for i, col in enumerate(
+        ["med_elev", "area_log10", "modern_slope_lower_10percent", "debris_log10"],
+        start=1,
+    ):
+        plt.subplot(2, 2, i)
+
+        filtered = weighted.iloc[(weighted[col].values > np.nanpercentile(weighted[col].values, 2.5)) & (weighted[col].values <= np.nanpercentile(weighted[col].values, 97.5))]
+
+        bins = np.percentile(filtered[col].values, np.linspace(0, 100, 10))
+        bins[-1] += 1e-3  # Make sure the last bin includes the maximum largest numbers
+        indices = np.digitize(filtered[col].values, bins=bins)
+
+        bin_values = [filtered["dh_m_we"].iloc[indices == i] for i in np.unique(indices)]
+        midpoints = (bins[1:] - np.diff(bins) / 2)[np.unique(indices) - 1]
+
+        boxplot = plt.boxplot(
+            bin_values,
+            positions=midpoints,
+            widths=np.diff(bins),
+            manage_ticks=False,
+            showfliers=False,
+            notch=False,
+            patch_artist=True,
+            boxprops=dict(
+                facecolor="gray",
+            ),
+            medianprops=dict(
+                color="black",
+                linestyle=":",
+            ),
+            zorder=3,
+        )
+
+        medians = np.array([np.median(vals) for vals in bin_values])
+        for j, box in enumerate(boxplot["boxes"]):
+            plt.setp(box, facecolor=MB_CMAP.to_rgba(medians[j]))
+        warnings.simplefilter("error")
+        if "log10" in col:
+            min_log = np.floor(bins[0])
+            max_log = np.ceil(bins[-1])
+
+            xticks_log = np.arange(min_log, max_log + 1)
+            minor_xticks = np.log10(np.ravel([[a * 10 ** b for a in np.arange(1, 11)] for b in xticks_log]))
+
+            plt.xticks(xticks_log, [int(a) if int(a) == a else a for a in  10** xticks_log])
+            plt.gca().set_xticks(minor_xticks, minor=True)
+            plt.gca().tick_params(axis='x', which='minor', **(dict(top=True) if i <= 2 else dict(bottom=True)))
+        elif col == "easting":
+            xticks = np.round(np.linspace(bins[0], bins[-1], 3), -5)
+            plt.xticks(xticks, labels=(xticks + 2e6).astype(int))
+        elif col == "northing":
+            xticks = np.round(np.linspace(bins[0], bins[-1], 3), -4)
+            plt.xticks(xticks, labels=(xticks + 1e6).astype(int))
+
+        plt.xlabel(labels[col])
+
+        if i <= 2:
+            plt.gca().xaxis.tick_top()
+            plt.gca().xaxis.set_label_position("top")
+
+        ylim = (-1.3, 0.2)
+
+        yticks = (np.ceil(np.linspace(*ylim, 5) * 10) / 10)[:-1]
+        plt.yticks(yticks, labels=([""] * yticks.size if i % 2 == 0 else None))
+        if i % 2 == 0:
+            yticks = plt.gca().get_yticks()
+        #else:
+        #    plt.ylabel(r"dHdt$^{-1}$ " + DH_MWE_UNIT)
+        
+
+        mask = (filtered["dh_m_we"] > lower) & (filtered["dh_m_we"] <= upper)
+        corr = np.corrcoef(filtered.loc[mask, col], filtered.loc[mask, "dh_m_we"])[0, 1]
+        #corr = np.corrcoef(midpoints, medians)[0, 1]
+        plt.text(0.98, 0.98, f"r={corr:.2f}".replace("-", "–"), ha="right", va="top", transform=plt.gca().transAxes,bbox= dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8))
+        plt.text(0.01, 0.98, "ABCD"[i - 1] + ")", fontsize=12, ha="left", va="top", transform=plt.gca().transAxes,bbox= dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8))
+        plt.xlim(bins[0] - abs(bins[0]) * 0.05, bins[-1] * 1.05)
+        plt.ylim(ylim)
+        plt.grid(zorder=0)
+
+        if i == 2:
+            inset = colorbar(MB_CMAP, vmin=ylim[0], vmax=ylim[1], loc=(1.01, 0.1), tick_right=True, height=0.7, width=0.08)
+            inset.set_ylabel(DH_MWE_LABEL, labelpad=8, fontsize=10)
+
+    plt.text(0, 0.5, r"dHdt$^{-1}$ " + DH_MWE_UNIT, ha="left", va="center", rotation=90, transform=plt.gcf().transFigure)
+
+    plt.subplots_adjust(left=0.083, bottom=0.092, right=0.905, top=0.886, wspace=0.013, hspace=0.015)
+    plt.savefig("temp/figures/mb_correlations.jpg", dpi=600)
     if show:
         plt.show()
 
@@ -1318,7 +1470,9 @@ def render_all_figures():
             regional_dh,
             interpolation_before_and_after,
             west_east_transect,
+            mb_correlations
         ],
         desc="Rendering figures",
     ):
         func(show=False)
+

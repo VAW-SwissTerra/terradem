@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import warnings
 import datetime
 import os
 import pathlib
@@ -672,6 +673,7 @@ def get_measurement_error() -> None:
     error_ds = rio.open("temp/stable_ground_error.tif")
     ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"])
     dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
+    slope_ds = rio.open(terradem.files.TEMP_FILES["base_dem_slope"])
     ddem_nointerp_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr"])
     ddem_ideal_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap-ideal"])
     n_effective_samples = pd.read_csv(terradem.files.TEMP_FILES["n_effective_samples"], index_col=0, squeeze=True)
@@ -763,34 +765,52 @@ def get_measurement_error() -> None:
         northing = np.mean([bounds["miny"], bounds["maxy"]])
 
         dem = dem_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)[mask]
+        slope = slope_ds.read(1, window=window, boundless=True, masked=True).filled(np.nan)[mask]
 
         temporal_error = np.abs(diff) * temporal_error_model(easting, northing)
 
         start_year, end_year = start_and_end_year_model(easting, northing)
 
-        result_list.append(
-            {
-                "sgi_id": sgi_id,
-                "easting": easting,
-                "northing": northing,
-                "dh": diff,
-                "start_area": area,
-                "start_area_m2_err": area_m2_error,
-                "end_area": modern_area,
-                "start_year": start_year,
-                "end_year": end_year,
-                "gaps_percent": gaps_percent,
-                "interp_err": interp_err,
-                "area_err": area_error,
-                "topo_err": topographic_error,
-                "time_err": temporal_error,
-                "max_elev": np.nanmax(dem),
-                "min_elev": np.nanmin(dem),
-                "med_elev": np.nanmedian(dem),
-                "sgi_1973_ids": ",".join(sgi_1973_ids),
-                "sgi_2016_ids": ",".join(modern_outlines["sgi-id"].unique()),
-            }
-        )
+        percent_20 = dem < np.nanpercentile(dem, 20)
+        percent_10 = dem < np.nanpercentile(dem, 10)
+        percent_5 = dem < np.nanpercentile(dem, 5)
+
+        warnings.simplefilter("error")
+        try:
+
+            result_list.append(
+                {
+                    "sgi_id": sgi_id,
+                    "easting": easting,
+                    "northing": northing,
+                    "dh": diff,
+                    "start_area": area,
+                    "start_area_m2_err": area_m2_error,
+                    "modern_slope": np.nanmean(slope),
+                    "modern_slope_lower_20percent": np.nanmean(slope[percent_20]) if np.count_nonzero(percent_20) > 1 else 0,
+                    "modern_slope_lower_10percent": np.nanmean(slope[percent_10]) if np.count_nonzero(percent_10) > 1 else 0,
+                    "modern_slope_lower_5percent": np.nanmean(slope[percent_5]) if np.count_nonzero(percent_5) > 1 else 0,
+                    "end_area": modern_area,
+                    "start_year": start_year,
+                    "end_year": end_year,
+                    "gaps_percent": gaps_percent,
+                    "interp_err": interp_err,
+                    "area_err": area_error,
+                    "topo_err": topographic_error,
+                    "time_err": temporal_error,
+                    "max_elev": np.nanmax(dem),
+                    "min_elev": np.nanmin(dem),
+                    "med_elev": np.nanmedian(dem),
+                    "sgi_1973_ids": ",".join(sgi_1973_ids),
+                    "sgi_2016_ids": ",".join(modern_outlines["sgi-id"].unique()),
+                }
+            )
+        except Exception as e:
+            print(dem)
+            print(dem.shape)
+            print(slope)
+            print(np.nanpercentile(dem, 20), np.nanpercentile(dem, 10), np.nanpercentile(dem, 5))
+            raise e
 
     result = pd.DataFrame(result_list).set_index("sgi_id")
 

@@ -104,6 +104,22 @@ def station_from_filepath(filepath: str) -> str:
 
     return station
 
+def sgi_1973_to_2016(sgi_id: str) -> str:
+    """
+    Convert the slightly different SGI1973 to the SGI2016 id format.
+    
+    :examples:
+        >>> sgi_1973_to_2016("B55-19")
+        'B55-19'
+        >>> sgi_1973_to_2016("E73-2")
+        'E73-02'
+    """
+    if "-" not in sgi_id:
+        return sgi_id
+
+    start, end = sgi_id.split("-")
+    return start + "-" + end.zfill(2)
+
 
 @overload
 def lv03_to_lv95(easting: np.ndarray, northing: np.ndarray) -> np.ndarray: ...
