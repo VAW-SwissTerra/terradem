@@ -109,6 +109,8 @@ def sgi_1973_to_2016(sgi_id: str) -> str:
     Convert the slightly different SGI1973 to the SGI2016 id format.
     
     :examples:
+        >>> sgi_1973_to_2016("B55")
+        'B55'
         >>> sgi_1973_to_2016("B55-19")
         'B55-19'
         >>> sgi_1973_to_2016("E73-2")
@@ -119,6 +121,24 @@ def sgi_1973_to_2016(sgi_id: str) -> str:
 
     start, end = sgi_id.split("-")
     return start + "-" + end.zfill(2)
+
+def sgi_2016_to_1973(sgi_id: str) -> str:
+    """
+    Convert the slightly different SGI2016 to the SGI1973 id format.
+    
+    :examples:
+        >>> sgi_2016_to_1973("B55")
+        'B55'
+        >>> sgi_2016_to_1973("B55-19")
+        'B55-19'
+        >>> sgi_2016_to_1973("E73-02")
+        'E73-2'
+    """
+    if "-" not in sgi_id:
+        return sgi_id
+
+    start, end = sgi_id.split("-")
+    return start + "-" + str(int(end))
 
 
 @overload

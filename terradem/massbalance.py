@@ -4,12 +4,14 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import warnings
 from typing import Any, Callable
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio as rio
+import shapely
 from tqdm import tqdm
 
 import terradem.dem_tools
@@ -21,6 +23,7 @@ ICE_DENSITY_ERROR = 0.06
 
 STANDARD_START_YEAR = 1931
 STANDARD_END_YEAR = 2016
+
 
 def read_mb_index() -> pd.DataFrame:
 
@@ -162,6 +165,7 @@ def get_corrections():
 
     return get_masschanges
 
+
 def get_start_and_end_years():
     mb_index = read_mb_index().cumsum()
 
@@ -183,7 +187,12 @@ def get_start_and_end_years():
         distances = np.argmin(
             np.linalg.norm([corrections["easting"] - easting, corrections["northing"] - northing], axis=0)
         )
-        return corrections.iloc[distances]["start_date"].year + corrections.iloc[distances]["start_date"].month / 12 + corrections.iloc[distances]["start_date"].day / 364.75, corrections.iloc[distances]["end_year"]
+        return (
+            corrections.iloc[distances]["start_date"].year
+            + corrections.iloc[distances]["start_date"].month / 12
+            + corrections.iloc[distances]["start_date"].day / 364.75,
+            corrections.iloc[distances]["end_year"],
+        )
 
     return get_start_and_end_year
 
@@ -201,4 +210,122 @@ def temporal_corr_error_model():
             (((2 * stochastic_yearly_error ** 2) / standard ** 2) + ((2 * stochastic_yearly_error ** 2) / actual ** 2))
             * (standard / actual) ** 2
         )
+
     return error_model
+
+
+def match_sgi_ids():
+
+    sgi_2016 = gpd.read_file(terradem.files.INPUT_FILE_PATHS["sgi_2016"])
+    sgi_2016["name_lower"] = sgi_2016["name"].str.lower().fillna("")
+    data_dir = pathlib.Path("data/external/mass_balance")
+
+    warnings.filterwarnings("ignore", category=shapely.errors.ShapelyDeprecationWarning)
+    result_data = []
+    ids = {
+        "seewijnen": "B52-22",
+        "corbassiere": "B83-03",
+        "murtel": "E23-16",
+        "gietro": "B82-14",
+        "findelen": "B56-03",
+    }
+
+    results = pd.DataFrame(columns=["sgi-id", "year", "dh", "dm"])
+
+    for filepath in filter(lambda s: "longterm" in str(s), data_dir.iterdir()):
+        name = filepath.stem.replace("_longterm", "")
+        if name in ids:
+            match = sgi_2016.loc[sgi_2016["sgi-id"] == ids[name]].iloc[0]
+        else:
+            name = {
+                "ugrindelwald": "unterer grindelwald",
+            }.get(name, None) or name
+            try:
+                match = (
+                    sgi_2016[sgi_2016["name_lower"].str.findall(f".*{name}.*").apply(len) > 0]
+                    .sort_values("area_km2")
+                    .iloc[-1]
+                )
+            except IndexError:
+                warnings.warn(f"Cannot find {name}")
+                continue
+
+        data = (
+            pd.read_csv(filepath, skiprows=1, delim_whitespace=True, na_values=[-99.0])
+            .rename(columns={"Year": "year", "B_a(mw.e.)": "dh"})
+            .ffill()
+        )
+        data["dm"] = (data["Area(km2)"] * 1e6) * data["dh"]
+        data["sgi-id"] = match["sgi-id"]
+
+        result_data.append(data[["sgi-id", "year", "dh", "dm"]])
+        continue
+
+    results = pd.concat(result_data).set_index(["sgi-id", "year"]).squeeze()
+
+    glacier_wise_dh = pd.read_csv(terradem.files.TEMP_FILES["glacier_wise_dh"])
+
+    matthias_dh: pd.DataFrame = (
+        results.loc[
+            (results.index.get_level_values(1) >= STANDARD_START_YEAR)
+            & (results.index.get_level_values(1) <= STANDARD_END_YEAR)
+        ]
+        .groupby(level=0)
+        .cumsum()
+        .groupby(level=0)
+        .last()
+    )
+
+    glacier_wise_dh.index = glacier_wise_dh["sgi_id"].apply(terradem.utilities.sgi_1973_to_2016)
+    glacier_wise_dh["dm_err_tonswe"] = (glacier_wise_dh["dm_tons_we"] / glacier_wise_dh["dh_m_we"]) * glacier_wise_dh[
+        "dh_err_mwe"
+    ]
+
+    matthias_dh = matthias_dh.merge(
+        glacier_wise_dh[["dh_m_we", "dm_tons_we", "dh_err_mwe", "dm_err_tonswe"]], left_index=True, right_index=True
+    ).rename(
+        columns={
+            "dh_m_we": "geodetic_dh",
+            "dh_err_mwe": "geodetic_dh_err",
+            "dm_tons_we": "geodetic_dm",
+            "dm_err_tonswe": "geodetic_dm_err",
+            "dh": "glaciological_dh",
+            "dm": "glaciological_dm",
+        }
+    )
+
+    matthias_dh[["glaciological_dh", "glaciological_dm"]] /= STANDARD_END_YEAR - STANDARD_START_YEAR
+
+    # matthias_dh["geodetic_dh"] = glacier_wise_dh.loc[matthias_dh.index, "dh_m_we"].values * (STANDARD_END_YEAR - STANDARD_START_YEAR)
+
+    import matplotlib.pyplot as plt
+
+    for i, col in enumerate(["dh", "dm"]):
+        plt.subplot(1,2, i + 1)
+        sign = -1 if col == "dm" else 1
+        plt.errorbar(matthias_dh[f"geodetic_{col}"] * sign, matthias_dh[f"glaciological_{col}"] * sign, xerr=matthias_dh[f"geodetic_{col}_err"], marker="s", lw=0, elinewidth=2, ecolor="black")
+        minval = matthias_dh[[f"geodetic_{col}", f"glaciological_{col}"]].min().min()
+        plt.plot([minval * sign, 0], [minval * sign, 0])
+        plt.title(f"{STANDARD_START_YEAR}$-${STANDARD_END_YEAR}")
+
+        if col == "dm m":
+            plt.xscale("log")
+            plt.yscale("log")
+
+        plt.xlabel(f"Geodetic MB ({'m' if col == 'dh' else 'tons'} w.e. a⁻¹)")
+        plt.ylabel(f"Matthias's MB ({'m' if col == 'dh' else 'tons'} w.e. a⁻¹)")
+
+    plt.show()
+    return
+    plt.subplot(122)
+    plt.scatter(-matthias_dh["geodetic_dm"], -matthias_dh["glaciological_dm"])
+    minval = matthias_dh[["geodetic_dm", "glaciological_dm"]].min().min()
+    plt.plot([-minval, 0], [-minval, 0])
+    plt.title(f"{STANDARD_START_YEAR}$-${STANDARD_END_YEAR}")
+    plt.xlabel(r"Geodetic MB (tons w.e. a$^{-1}$)")
+    plt.ylabel(r"Matthias's MB (tons w.e. a$^{-1}$)")
+    plt.show()
+
+    print(glacier_wise_dh)
+
+    print(matthias_dh)

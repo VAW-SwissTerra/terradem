@@ -700,7 +700,7 @@ def error_ensemble(show: bool = True):
 
     plt.subplot2grid(grid, (0, 1 + grid[1] // 2), rowspan=grid[0] // 2, colspan=grid[0] // 2)
     plt.hist(glacier_wise_dh[list(names.keys())], bins=np.linspace(0, 0.4, 20), label=[names[col] for col in names])
-    plt.ylabel("Count")
+    plt.ylabel("Glacier count")
     plt.xlabel(r"dHdt$^{-1}$ (ma$^{-1})$")
     plt.yscale("log")
     plt.gca().yaxis.tick_right()
@@ -719,6 +719,7 @@ def error_ensemble(show: bool = True):
 
     for i, vgm in enumerate([interp_vgm, dh_vgm]):
         vgm["bins_interval"] = pd.IntervalIndex.from_breaks(np.r_[[0], vgm["bins"]])
+        vgm["bins_mid"] = vgm["bins_interval"].apply(lambda i: i.mid)
         vgm_model, _ = xdem.spatialstats.fit_sum_model_variogram(["Sph"] * 2, vgm)
 
         limits = [0, 100, 1e4, vgm["bins"].max() * 1.1]
@@ -734,7 +735,7 @@ def error_ensemble(show: bool = True):
                 )
                 if k == 0:
                     plt.bar(
-                        vgm["bins_interval"].apply(lambda i: i.mid),
+                        vgm["bins_mid"],
                         height=vgm["count"],
                         width=vgm["bins_interval"].apply(lambda i: i.length),
                         edgecolor="lightgray",
@@ -744,14 +745,18 @@ def error_ensemble(show: bool = True):
                     )
                     plt.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
                 elif k == 1:
+                    # Plot the empiric points
+                    inside_limits = vgm[(vgm["bins_mid"] >= limits[j]) & (vgm["bins_mid"] <= limits[j + 1])]
                     plt.errorbar(
-                        vgm["bins_interval"].apply(lambda i: i.mid),
-                        vgm["exp"],
-                        yerr=vgm["err_exp"],
+                        inside_limits["bins_mid"],
+                        inside_limits["exp"],
+                        yerr=inside_limits["err_exp"],
                         linestyle="",
                         marker="x",
+                        color="k"
                     )
-                    plt.plot(np.arange(limits[-1]), vgm_model(np.arange(limits[-1])))
+                    # Plot the model line
+                    plt.plot(np.arange(limits[-1]), vgm_model(np.arange(limits[-1])), linestyle="--", color="darkslategrey")
 
                 plt.ylim(0, vgm["count"].max() if k == 0 else vgm[["exp", "err_exp"]].sum(axis=1).max())
                 plt.xticks(xticks, None if k == 1 else [""] * len(xticks))
@@ -808,12 +813,6 @@ def historic_images(show: bool = True):
     image_height = 44
     image_width = (18 / 13) * image_height
 
-    fig: plt.Figure = plt.figure(figsize=(8.3, 4.8), dpi=150)
-    grid = (2, 3)
-
-    crs = ccrs.LambertConformal()
-    ax0: plt.Axes = plt.subplot2grid(grid, (0, 1), colspan=2, projection=crs, fig=fig)
-
     def add_letter(axis: plt.Axes, letter: str, loc: tuple[float, float]):
         axis.text(
             *loc,
@@ -823,6 +822,59 @@ def historic_images(show: bool = True):
             transform=axis.transAxes,
             bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8),
         )
+
+    fig: plt.Figure = plt.figure(figsize=(8.3, 4.8), dpi=150)
+    grid = (2, 3)
+
+    colors = {"LK50": "royalblue", "SGI2016": "lightgray"}
+    ax0: plt.Axes = plt.subplot2grid(grid, (0, 0), colspan=1, rowspan=2, fig=fig)
+    lk50_outlines.plot(ax=ax0, color=colors["LK50"])
+    sgi_2016.plot(ax=ax0, color=colors["SGI2016"])
+
+    xlim = IMAGE_EXAMPLE_BOUNDS.left + 2e6, IMAGE_EXAMPLE_BOUNDS.right + 2e6
+    ylim = IMAGE_EXAMPLE_BOUNDS.bottom + 1e6, IMAGE_EXAMPLE_BOUNDS.top + 1e6
+    image_meta = image_meta.to_crs(lk50_outlines.crs)
+    image_meta = image_meta[
+        (image_meta.geometry.x.values > xlim[0])
+        & (image_meta.geometry.x <= xlim[1])
+        & (image_meta.geometry.y > ylim[0])
+        & (image_meta.geometry.y <= ylim[1])
+    ]
+
+    plt.quiver(
+        image_meta.geometry.x,
+        image_meta.geometry.y,
+        1,
+        1,
+        angles=90 - image_meta["yaw"],
+        headwidth=3,
+        headlength=2,
+        width=4e-3,
+    )
+    #for _, camera in image_meta.reset_index().iterrows():
+    #    marker = matplotlib.markers.MarkerStyle(r"$\frac{|}{\cdot}$")
+    #    marker._transform = marker.get_transform().rotate_deg(camera["yaw"])
+    #    p = ax0.scatter(
+    #        camera.geometry.x, camera.geometry.y, marker=marker, color="black", facecolor="none", linewidths=0.3, s=60
+    #    )
+
+    #handles.append(p)
+    #labels.append("Photograph")
+
+    # ax0.legend(handles, labels)
+    ax0.set_ylim(ylim)
+    ax0.set_xlim(xlim)
+    add_letter(ax0, "A)", (0.05, 0.975))
+    ax0.ticklabel_format(style="plain")
+    xticks = ax0.get_xticks()
+    yticks = ax0.get_yticks()
+    ax0.set_xticks(xticks[[1, -1]])
+    plt.yticks(yticks[[1, -2]], rotation=90, va="center")
+    ax0.set_ylabel("Northing (m)")
+    ax0.set_xlabel("Easting (m)")
+
+    crs = ccrs.LambertConformal()
+    ax1: plt.Axes = plt.subplot2grid(grid, (0, 1), colspan=2, projection=crs, fig=fig)
 
     # extents: dict[int, tuple[float, float, float, float]] = {}
     for _, image in rhone.iloc[::-1].iterrows():
@@ -835,7 +887,7 @@ def historic_images(show: bool = True):
 
         img = np.clip((img - vmin) / (vmax - vmin), 0, 255)
 
-        ax0.imshow(
+        ax1.imshow(
             img,
             cmap="Greys_r",
             extent=[
@@ -848,7 +900,7 @@ def historic_images(show: bool = True):
         )
 
     for _, image in rhone.iloc[::-1].iterrows():
-        ax0.add_patch(
+        ax1.add_patch(
             plt.Rectangle(
                 (image["x"] - image_width / 2, image["y"] - image_height / 2),
                 image_width,
@@ -903,53 +955,14 @@ def historic_images(show: bool = True):
         (7.1, 3.50),
     ]
 
-    ax0.plot(*np.array(rhone_outline).T, color="royalblue", linestyle="--")
+    ax1.plot(*np.array(rhone_outline).T, color="royalblue", linestyle="--")
 
-    # ax0.set_extent([-100, 50, -40, 25])
-    ax0.set_xlim(-120, 50)
-    ax0.set_ylim(-40, 25)
-    add_letter(ax0, "B)", (0.09, 0.95))
-    ax0.set_axis_off()
+    # ax1.set_extent([-100, 50, -40, 25])
+    ax1.set_xlim(-120, 50)
+    ax1.set_ylim(-40, 25)
+    add_letter(ax1, "B)", (0.09, 0.95))
+    ax1.set_axis_off()
 
-    colors = {"LK50": "royalblue", "SGI2016": "lightgray"}
-    ax1: plt.Axes = plt.subplot2grid(grid, (0, 0), colspan=1, rowspan=2, fig=fig)
-    lk50_outlines.plot(ax=ax1, color=colors["LK50"])
-    sgi_2016.plot(ax=ax1, color=colors["SGI2016"])
-
-    handles = [matplotlib.patches.Patch(facecolor=c) for c in colors.values()]
-    labels = list(colors.keys())
-
-    xlim = IMAGE_EXAMPLE_BOUNDS.left + 2e6, IMAGE_EXAMPLE_BOUNDS.right + 2e6
-    ylim = IMAGE_EXAMPLE_BOUNDS.bottom + 1e6, IMAGE_EXAMPLE_BOUNDS.top + 1e6
-    image_meta = image_meta.to_crs(lk50_outlines.crs)
-    image_meta = image_meta[
-        (image_meta.geometry.x.values > xlim[0])
-        & (image_meta.geometry.x <= xlim[1])
-        & (image_meta.geometry.y > ylim[0])
-        & (image_meta.geometry.y <= ylim[1])
-    ]
-
-    for _, camera in image_meta.reset_index().iterrows():
-        marker = matplotlib.markers.MarkerStyle(r"$\frac{|}{\cdot}$")
-        marker._transform = marker.get_transform().rotate_deg(camera["yaw"])
-        p = ax1.scatter(
-            camera.geometry.x, camera.geometry.y, marker=marker, color="black", facecolor="none", linewidths=0.3, s=60
-        )
-
-    handles.append(p)
-    labels.append("Photograph")
-
-    # ax1.legend(handles, labels)
-    ax1.set_ylim(ylim)
-    ax1.set_xlim(xlim)
-    add_letter(ax1, "A)", (0.05, 0.975))
-    ax1.ticklabel_format(style="plain")
-    xticks = ax1.get_xticks()
-    yticks = ax1.get_yticks()
-    ax1.set_xticks(xticks[[1, -1]])
-    plt.yticks(yticks[[1, -2]], rotation=90, va="center")
-    ax1.set_ylabel("Northing (m)")
-    ax1.set_xlabel("Easting (m)")
 
     data = {
         "Wild": {
@@ -1158,6 +1171,7 @@ def regional_dh(show: bool = True):
 
     grouped = data_times_weight.groupby(group_column).sum() / data_weight_where_notnull.groupby(group_column).sum()
     grouped["area_km2"] = data.groupby(group_column).sum()["start_area"] * 1e-6
+    grouped[["grid_north", "grid_east"]] = data.groupby(group_column).first()[["grid_north", "grid_east"]]
     # grouped["area_km2"] = grouped["start_area"] * grouped["count"] * 1e-6
 
     grouped.sort_values("easting", inplace=True)
@@ -1183,6 +1197,15 @@ def regional_dh(show: bool = True):
         alpha=0.9,
         cmap=MB_CMAP,
     )
+
+    for _, point in grouped.iterrows():
+        plt.plot(
+            np.array([point["grid_east"] - gridsize_x / 2, point["grid_east"] + gridsize_x / 2])[[0, 1, 1, 0, 0]],
+            np.array([point["grid_north"] - gridsize_y / 2, point["grid_north"] - gridsize_y * 1.5])[[1, 1, 0, 0, 1]],
+            color="darkslategrey",
+            linestyle="-",
+            linewidth=0.3
+        )
     for _, row in grouped.iterrows():
         text = str(round(row["dh_m_we"], 2))
         text += "0" * (5 - len(text))
@@ -1194,6 +1217,11 @@ def regional_dh(show: bool = True):
             fontsize=8,
             path_effects=[matplotlib.patheffects.Stroke(foreground="w", linewidth=2), matplotlib.patheffects.Normal()],
         )
+
+    #for x in grid_x:
+    #    plt.vlines(x, ymin, ymax)
+    #for y in grid_y:
+    #    plt.hlines(y, xmin, xmax)
     # print(DH_CMAP.set_clim(-1, 0.2))
     # cbar = plt.colorbar(DH_CMAP)
     colorbar(MB_CMAP, height=0.3, loc=(0.03, 0.65), vmax=0.2, vmin=-0.75, tick_right=True, label=DH_MWE_LABEL, rotate_ticks=False, labelpad=5)
@@ -1224,7 +1252,7 @@ def regional_dh(show: bool = True):
     plt.ylabel("Northing (m)")
     plt.xlabel("Easting (m)")
 
-    plt.legend(labels=legend_items.keys(), handles=legend_items.values(), borderpad=0.9, labelspacing=1.3)
+    plt.legend(labels=legend_items.keys(), handles=legend_items.values(), borderpad=0.9, labelspacing=1.3, loc="upper right")
     plt.tight_layout()
 
     plt.savefig("temp/figures/dh_bubbles.jpg", dpi=600)
@@ -1243,6 +1271,8 @@ def interpolation_before_and_after(show: bool = True):
         "interp": terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"],
     }
 
+    lk50_outlines = gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
+
     ddems: dict[str, np.ndarray] = {}
 
     for key in ddem_paths:
@@ -1259,8 +1289,11 @@ def interpolation_before_and_after(show: bool = True):
 
     plt.figure(figsize=(8.3, 5), dpi=200)
     for i, key in enumerate(ddems, start=1):
-        plt.subplot(1, 2, i)
+        axis = plt.subplot(1, 2, i)
         plt.imshow(np.ma.masked_array(ddems[key], mask=np.isnan(ddems[key])), **imshow_params)
+
+        lk50_outlines.plot(ax=axis, color="none", edgecolor="black", lw=0.7)
+        
 
         yticks = plt.gca().get_yticks()[[2, -2]]
         plt.yticks(yticks, (yticks + 1e6).astype(int) if i == 1 else [""] * len(yticks), rotation=270, va="center")
@@ -1274,6 +1307,9 @@ def interpolation_before_and_after(show: bool = True):
             inset.set_yticklabels(["$<-4$", "-1", "0", ">1"])
             plt.ylabel("Northing (m)")
             plt.xlabel("Easting (m)")
+
+        plt.xlim(bounds.left, bounds.right)
+        plt.ylim(bounds.bottom ,bounds.top)
 
     plt.tight_layout()
 
