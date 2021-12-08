@@ -589,7 +589,7 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
         # Draw points along the ortho-drawn line(s) to measure distances with.
         points: list[shapely.geometry.Point] = []
         for line in getattr(ortho_glacier, "geoms", [ortho_glacier]):
-            for i in np.linspace(0, line.length):
+            for i in np.linspace(0, line.length, 100):
                 points.append(line.interpolate(i))
         
         if plot is not None and plot == j:
@@ -600,6 +600,7 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
 
         # Loop over all points, draw a long line, then cut the line to get and compare lengths
         diffs = []
+        legend_done = False
         for point in points:
             # This line will start at the centroid and end somewhere outside of the glacier
             line = shapely.geometry.LineString([centroid, _extrapolate_point(centroid.coords[0], point.coords[0])])
@@ -627,12 +628,17 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
             # The difference in length between this line will be the error.
             diffs.append(ortho_line.length - lk50_line.length)
 
-            if plot is not None and plot == j:
-                plt.plot(*ortho_line.xy, color="red", linewidth=2)
-                plt.plot(*lk50_line.xy, color="blue", linewidth=2)
-                plt.plot(*min([ortho_line, lk50_line], key=lambda l: l.length).xy, color="white", linewidth=3, solid_capstyle="round")
+            ortho_line_diff = ortho_line.difference(lk50_line.buffer(1))
+            lk50_line_diff = lk50_line.difference(ortho_line.buffer(1))
 
-                plt.scatter(centroid.x, centroid.y, marker="x", color="r", zorder=4, s=60, path_effects=[matplotlib.patheffects.Stroke(linewidth=2, foreground="k"), matplotlib.patheffects.Normal()])
+
+            if plot is not None and plot == j:
+                plt.plot(*ortho_line_diff.xy, color="red", linewidth=2, label="Ortho. longer" if not legend_done else None)
+                plt.plot(*lk50_line_diff.xy, color="blue", linewidth=2, label="LK50 longer" if not legend_done else None)
+                #plt.plot(*min([ortho_line, lk50_line], key=lambda l: l.length).xy, color="white", linewidth=3, solid_capstyle="round")
+
+                plt.scatter(centroid.x, centroid.y, marker="x", color="r", zorder=4, s=60, path_effects=[matplotlib.patheffects.Stroke(linewidth=2, foreground="k"), matplotlib.patheffects.Normal()], label="Centroid" if not legend_done else None)
+                legend_done = True
 
         if plot is not None and plot == j:
             return

@@ -280,6 +280,7 @@ def match_sgi_ids():
     glacier_wise_dh["dm_err_tonswe"] = (glacier_wise_dh["dm_tons_we"] / glacier_wise_dh["dh_m_we"]) * glacier_wise_dh[
         "dh_err_mwe"
     ]
+    glacier_wise_dh.loc[glacier_wise_dh.index == "B36-26", ["dh_m_we", "dm_tons_we"]] *= 0.86   # A correction factor for including Mittelaletschgletscher
 
     matthias_dh = matthias_dh.merge(
         glacier_wise_dh[["dh_m_we", "dm_tons_we", "dh_err_mwe", "dm_err_tonswe"]], left_index=True, right_index=True
@@ -303,7 +304,7 @@ def match_sgi_ids():
     for i, col in enumerate(["dh", "dm"]):
         plt.subplot(1,2, i + 1)
         sign = -1 if col == "dm" else 1
-        plt.errorbar(matthias_dh[f"geodetic_{col}"] * sign, matthias_dh[f"glaciological_{col}"] * sign, xerr=matthias_dh[f"geodetic_{col}_err"], marker="s", lw=0, elinewidth=2, ecolor="black")
+        plt.errorbar(matthias_dh[f"geodetic_{col}"] * sign, matthias_dh[f"glaciological_{col}"] * sign, xerr=matthias_dh[f"geodetic_{col}_err"] * 2, marker="s", lw=0, elinewidth=2, ecolor="black")
         minval = matthias_dh[[f"geodetic_{col}", f"glaciological_{col}"]].min().min()
         plt.plot([minval * sign, 0], [minval * sign, 0])
         plt.title(f"{STANDARD_START_YEAR}$-${STANDARD_END_YEAR}")

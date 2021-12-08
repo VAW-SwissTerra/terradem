@@ -58,13 +58,13 @@ MB_CMAP = matplotlib.cm.ScalarMappable(
     norm=MB_NORMALIZER,
     cmap=matplotlib.colors.LinearSegmentedColormap.from_list("mb", [(MB_NORMALIZER(a), b) for a, b in MB_COLORS]),
 )
-DH_UNIT = "ma⁻¹"
+DH_UNIT = "m a⁻¹"
+DH_LABEL = "dH dt⁻¹ (m a⁻¹)"
 DH_MWE_UNIT = "m w.e. a⁻¹"
-DH_MWE_LABEL = r"dHdt$^{-1}$ (ma$^{-1}$ w.e.)"
+DH_MWE_LABEL = r"B (m w.e. a$^{-1}$)"
 
 
-IMAGE_EXAMPLE_BOUNDS = rio.coords.BoundingBox(left=6.70e5, bottom=1.567e5, right=6.76e5, top=1.68e5)
-
+IMAGE_EXAMPLE_BOUNDS = rio.coords.BoundingBox(left=6.70e5, bottom=1.567e5 - 500, right=6.76e5, top=1.68e5 - 500)
 INTERPOLATION_BEFORE_AFTER_BOUNDS = rio.coords.BoundingBox(632760, 132950, 665800, 174560)
 LK50_EXAMPLE_BOUNDS = rio.coords.BoundingBox(left=628150, right=633160, bottom=100800, top=105000)
 OUTLINE_ERROR_BOUNDS = rio.coords.BoundingBox(left=659300, right=661000, bottom=160200, top=162000)
@@ -101,7 +101,11 @@ def colorbar(
     inset.set_xlim(0, width)
     inset.set_xticks([])
 
-    ylabel_props = {"fontsize": 10, "bbox": dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8), "labelpad": labelpad}
+    ylabel_props = {
+        "fontsize": 10,
+        "bbox": dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8),
+        "labelpad": labelpad,
+    }
 
     if tick_right:
         inset.yaxis.set_label_position("right")
@@ -109,7 +113,7 @@ def colorbar(
         inset.set_ylabel(label, rotation=90, **ylabel_props)
         inset.yaxis.tick_right()
     else:
-        inset.set_ylabel(label,  **ylabel_props)
+        inset.set_ylabel(label, **ylabel_props)
 
     if rotate_ticks:
         inset.tick_params(axis="y", labelrotation=90)
@@ -185,7 +189,7 @@ def error_histograms():
     }
     plt.hist(data[columns], bins=np.linspace(0, 0.4, 20), label=[names[col] for col in columns])
     plt.ylabel("Count")
-    plt.xlabel(r"dH dt$^{-1}$ (m a$^{-1})$")
+    plt.xlabel(DH_MWE_LABEL)
     plt.legend()
 
     plt.tight_layout()
@@ -308,7 +312,7 @@ def outline_error(show: bool = True):
     imshow(inset)
     size = 400
     ymin = 103550
-    xmin = 629200
+    xmin = 629270
     inset.set_xlim(xmin, xmin + size)
     inset.set_ylim(ymin, ymin + size)
     inset.set_xticks([])
@@ -358,6 +362,7 @@ def outline_error(show: bool = True):
         va="top",
         bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.2),
     )
+    plt.legend(loc="lower left")
 
     plt.tight_layout()
     plt.savefig("temp/figures/outline_error.jpg", dpi=600)
@@ -374,7 +379,7 @@ def elevation_change_histograms():
     plt.subplot(121)
     plt.hist(data["dh"], bins=np.linspace(-3, 3, 100), color="black")
     plt.ylabel("Count")
-    plt.xlabel(r"dH dt$^{-1}$ (m a$^{-1})$")
+    plt.xlabel(DH_MWE_LABEL)
 
     # data["alpha"] = np.clip(np.log10(data["area"]) / np.log10(data["area"].max()) * 0.1, 0, 1)
     plt.subplot(122)
@@ -418,7 +423,7 @@ def plot_base_dem_slope(axis: plt.Axes | None = None):
     )
 
 
-def plot_lk50_glaciers(axis: plt.Axes | None = None, lk50_outlines: gpd.GeoDataFrame | None = None) -> None:
+def plot_lk50_glaciers(axis: plt.Axes | None = None, lk50_outlines: gpd.GeoDataFrame | None = None, **plot_params) -> None:
     axis = axis or plt.gca()
     lk50_outlines = (
         lk50_outlines if lk50_outlines is not None else gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
@@ -426,7 +431,7 @@ def plot_lk50_glaciers(axis: plt.Axes | None = None, lk50_outlines: gpd.GeoDataF
 
     lk50_outlines["subregion"] = lk50_outlines["SGI"].str.slice(stop=2)
 
-    lk50_outlines.plot(ax=axis, edgecolor="black", lw=0.1)  # , column="subregion")
+    lk50_outlines.plot(ax=axis, edgecolor="black", lw=0.1, **plot_params)  # , column="subregion")
 
 
 def overview(show: bool = True):
@@ -494,7 +499,8 @@ def overview(show: bool = True):
         zorder=1,
     )
     # total lk50_outlines.plot(ax=plt.gca(), edgecolor="black", lw=0.1)
-    plot_lk50_glaciers(lk50_outlines=lk50_outlines)
+    glacier_color = "royalblue"
+    plot_lk50_glaciers(lk50_outlines=lk50_outlines, facecolor=glacier_color)
     outline.plot(ax=plt.gca(), facecolor="none", edgecolor="black")
 
     plt.scatter(
@@ -508,9 +514,12 @@ def overview(show: bool = True):
         c=image_meta["year_bin"],
     )
 
-    for i, box_bounds in enumerate(
-        [IMAGE_EXAMPLE_BOUNDS, INTERPOLATION_BEFORE_AFTER_BOUNDS, LK50_EXAMPLE_BOUNDS, OUTLINE_ERROR_BOUNDS]
-    ):
+    for name, box_bounds in {
+        "2": IMAGE_EXAMPLE_BOUNDS,
+        "5": INTERPOLATION_BEFORE_AFTER_BOUNDS,
+        "4A": LK50_EXAMPLE_BOUNDS,
+        "4B": OUTLINE_ERROR_BOUNDS,
+    }.items():
         plt.plot(
             *shapely.geometry.box(*box_bounds).exterior.xy,
             zorder=3,
@@ -519,7 +528,7 @@ def overview(show: bool = True):
             path_effects=[matplotlib.patheffects.Stroke(foreground="k", linewidth=1), matplotlib.patheffects.Normal()],
         )
         plt.annotate(
-            "abcdef"[i],
+            name,
             (box_bounds.left, box_bounds.top),
             va="bottom",
             ha="center",
@@ -528,7 +537,7 @@ def overview(show: bool = True):
         )
 
     weather_stations = terradem.climate.read_all_data().groupby("station").mean()
-    handle = plt.scatter(
+    weather_station_handle = plt.scatter(
         weather_stations["easting"],
         weather_stations["northing"],
         marker="^",
@@ -560,10 +569,17 @@ def overview(show: bool = True):
         va="top",
         bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.2),
     )
-    handles = [handle]
+    handles = []
     for i in range(1, bins.size):
         handles.append(plt.scatter(0, 0, s=20, color=image_year_cmap.to_rgba(i), label=f"{bins[i - 1] + 1}–{bins[i]}"))
-    plt.legend(handles=handles, loc="lower right")
+    legend0 = plt.legend(handles=handles, loc="lower right", title="Photograph years")
+
+    plt.legend(handles=[
+        weather_station_handle,
+        matplotlib.patches.Patch(facecolor=glacier_color, edgecolor="none", label="Glaciers ~1931")
+        ],
+        loc="lower left")
+    plt.gca().add_artist(legend0)
 
     xlim = (1900, 2021)
     xticks = np.arange(1900, 2040, 40)
@@ -591,7 +607,7 @@ def overview(show: bool = True):
     plt.yticks(rotation=270, va="center")
     plt.ylabel(r"$\Delta$P (mm)", rotation=270, labelpad=20)
 
-    plt.subplots_adjust(top=0.991, bottom=0.082, left=0.05, right=0.938, hspace=0.034, wspace=0.03)
+    plt.subplots_adjust(top=0.991, bottom=0.082, left=0.05, right=0.937, hspace=0.034, wspace=0.03)
 
     plt.savefig("temp/figures/overview.jpg", dpi=600)
 
@@ -605,10 +621,10 @@ def error_ensemble(show: bool = True):
 
     grid = (19, 19)
     names = {
-        "topo_err": "Stable-ground error",
-        "time_err": "Temporal error",
-        "area_err": "Area error",
-        "interp_err": "Interpolation error",
+        "topo_err": "Stable-ground",
+        "time_err": "Temporal",
+        "area_err": "Area",
+        "interp_err": "Interpolation",
     }
     bounds = rio.coords.BoundingBox(left=639450, bottom=139000, right=644500, top=144000 + 800)
 
@@ -666,8 +682,18 @@ def error_ensemble(show: bool = True):
             plt.ylabel("Northing (m)")
             plt.xlabel("Easting (m)")
         else:
-            inset = colorbar(axis=axis, loc=(1.01, 0.5), vmin=-1, vmax=1, height=0.5, tick_right=True, width=0.07, rotate_ticks=False, labelpad=5)
-            inset.set_ylabel(DH_MWE_LABEL, fontsize=10)
+            inset = colorbar(
+                axis=axis,
+                loc=(1.01, 0.5),
+                vmin=-1,
+                vmax=1,
+                height=0.5,
+                tick_right=True,
+                width=0.07,
+                rotate_ticks=False,
+                labelpad=5,
+            )
+            inset.set_ylabel(DH_LABEL, fontsize=10)
             plt.xticks(xticks, labels=[""] * len(xticks))
             plt.yticks(yticks, labels=[""] * len(yticks))
         axis.text(
@@ -701,7 +727,7 @@ def error_ensemble(show: bool = True):
     plt.subplot2grid(grid, (0, 1 + grid[1] // 2), rowspan=grid[0] // 2, colspan=grid[0] // 2)
     plt.hist(glacier_wise_dh[list(names.keys())], bins=np.linspace(0, 0.4, 20), label=[names[col] for col in names])
     plt.ylabel("Glacier count")
-    plt.xlabel(r"dHdt$^{-1}$ (ma$^{-1})$")
+    plt.xlabel("Uncertainty in " + DH_LABEL)
     plt.yscale("log")
     plt.gca().yaxis.tick_right()
     plt.gca().yaxis.set_label_position("right")
@@ -752,11 +778,16 @@ def error_ensemble(show: bool = True):
                         inside_limits["exp"],
                         yerr=inside_limits["err_exp"],
                         linestyle="",
-                        marker="x",
-                        color="k"
-                    )
+                        marker="s",
+                        ms=3,
+                        color="k",
+                        label="Empiric",
+
+                    )[2]
                     # Plot the model line
-                    plt.plot(np.arange(limits[-1]), vgm_model(np.arange(limits[-1])), linestyle="--", color="darkslategrey")
+                    plt.plot(
+                        np.arange(limits[-1]), vgm_model(np.arange(limits[-1])), linestyle="--", color="darkslategrey"
+                    )
 
                 plt.ylim(0, vgm["count"].max() if k == 0 else vgm[["exp", "err_exp"]].sum(axis=1).max())
                 plt.xticks(xticks, None if k == 1 else [""] * len(xticks))
@@ -765,13 +796,13 @@ def error_ensemble(show: bool = True):
                 plt.grid(zorder=0)
 
                 if (j == 0 and i == 0) or (j == 2 and i == 1):
-                    plt.ylabel(r"Variance ($m a^{-1}$)" if k == 1 else "Count")
+                    plt.ylabel(("Variogram of\n" + DH_LABEL) if k == 1 else "Count")
                     plt.yticks(yticks)
                 else:
                     plt.yticks(yticks, [""] * len(yticks))
 
                 if j == 1 and k == 1:
-                    plt.xlabel("Lag (m)")
+                    plt.xlabel("Spatial lag (m)")
                 if j == 0 and k == 0:
                     plt.text(
                         0.05,
@@ -783,10 +814,13 @@ def error_ensemble(show: bool = True):
                         va="top",
                     )
 
+                #if k == 2 and j == 0:
+                #    plt.gca().yaxis.tick_right()
+
                 if i == 1:
                     plt.gca().yaxis.tick_right()
                     plt.gca().yaxis.set_label_position("right")
-    plt.subplots_adjust(left=0.065, bottom=0.09, right=0.92, top=0.905, wspace=0, hspace=0.065)
+    plt.subplots_adjust(left=0.084, bottom=0.09, right=0.92, top=0.905, wspace=0, hspace=0.065)
     plt.savefig("temp/figures/error_approach_ensemble.jpg", dpi=600)
     if show:
         plt.show()
@@ -851,15 +885,15 @@ def historic_images(show: bool = True):
         headlength=2,
         width=4e-3,
     )
-    #for _, camera in image_meta.reset_index().iterrows():
+    # for _, camera in image_meta.reset_index().iterrows():
     #    marker = matplotlib.markers.MarkerStyle(r"$\frac{|}{\cdot}$")
     #    marker._transform = marker.get_transform().rotate_deg(camera["yaw"])
     #    p = ax0.scatter(
     #        camera.geometry.x, camera.geometry.y, marker=marker, color="black", facecolor="none", linewidths=0.3, s=60
     #    )
 
-    #handles.append(p)
-    #labels.append("Photograph")
+    # handles.append(p)
+    # labels.append("Photograph")
 
     # ax0.legend(handles, labels)
     ax0.set_ylim(ylim)
@@ -872,6 +906,15 @@ def historic_images(show: bool = True):
     plt.yticks(yticks[[1, -2]], rotation=90, va="center")
     ax0.set_ylabel("Northing (m)")
     ax0.set_xlabel("Easting (m)")
+
+    plt.legend(
+        handles=[
+            plt.scatter(0, 0, c="k", marker=r"$\rightarrow$", s=30, label="Photograph", edgecolors="none"),
+            matplotlib.patches.Patch(facecolor=colors["LK50"], edgecolor="none", label="Glaciers ~1931"),
+            matplotlib.patches.Patch(facecolor=colors["SGI2016"], edgecolor="none", label="Glaciers ~2016"),
+        ],
+        loc="lower right",
+    )
 
     crs = ccrs.LambertConformal()
     ax1: plt.Axes = plt.subplot2grid(grid, (0, 1), colspan=2, projection=crs, fig=fig)
@@ -963,7 +1006,6 @@ def historic_images(show: bool = True):
     add_letter(ax1, "B)", (0.09, 0.95))
     ax1.set_axis_off()
 
-
     data = {
         "Wild": {
             "filename": "000-164-603.tif",
@@ -990,7 +1032,7 @@ def historic_images(show: bool = True):
         for box in data[key]["boxes"]:
             axis.add_patch(plt.Rectangle(box[:2], 500, 500, facecolor="none", linestyle="--", edgecolor="red"))
 
-        axis.set_title(f'“{key}"', fontsize=10)
+        axis.set_title(f'“{key}"-type', fontsize=10)
         axis.imshow(img, cmap="Greys_r")
         axis.set_axis_off()
         add_letter(axis, data[key]["letter"], (0.05, 0.95))
@@ -1017,7 +1059,7 @@ def dh_histogram():
     xticks = plt.gca().get_xticks()
 
     # plt.xticks(xticks, labels=[r"$10^{" + str(int(n)) + "}$" for n in xticks])
-    plt.ylabel("dHdt$^{-1}$ (ma$^{-1}$ w.e.)")
+    plt.ylabel(DH_MWE_LABEL)
     # plt.xlabel("Area (km²)")
     plt.xlabel("Elevation (m a.s.l.")
 
@@ -1085,7 +1127,7 @@ def west_east_transect(show: bool = True):
         labelpad=7,
         rotate_ticks=True,
     )
-    #plt.setp(inset.yaxis.get_majorticklabels(), rotation=270, va="center")
+    # plt.setp(inset.yaxis.get_majorticklabels(), rotation=270, va="center")
 
     subregion = data.groupby("subregion")
     ylim = plt.gca().get_ylim()
@@ -1140,7 +1182,7 @@ def regional_dh(show: bool = True):
 
     data = data.select_dtypes(np.number)
 
-    gridsize_x = 60000
+    gridsize_x = 30000
     gridsize_y = gridsize_x
 
     xmin = (data["easting"].min() - data["easting"].min() % gridsize_x) - gridsize_x * 2
@@ -1204,41 +1246,64 @@ def regional_dh(show: bool = True):
             np.array([point["grid_north"] - gridsize_y / 2, point["grid_north"] - gridsize_y * 1.5])[[1, 1, 0, 0, 1]],
             color="darkslategrey",
             linestyle="-",
-            linewidth=0.3
+            linewidth=0.3,
         )
     for _, row in grouped.iterrows():
         text = str(round(row["dh_m_we"], 2))
         text += "0" * (5 - len(text))
+        offset = 2000
+
+        if row["northing"] > (row["grid_north"] - gridsize_y):
+            plot_params = {
+                "xy": (row["grid_east"] + gridsize_x / 2 - offset, row["grid_north"] - gridsize_y * 1.5 + offset),
+                "ha": "right",
+                "va": "bottom",
+            }
+        else:
+            plot_params = {
+                "xy": (row["grid_east"] - gridsize_x / 2 + offset, row["grid_north"] - gridsize_y / 2 - offset),
+                "ha": "left",
+                "va": "top",
+            }
+
         plt.annotate(
             text,
-            xy=(row["easting"], row["northing"]),
-            ha="center",
-            va="center",
             fontsize=8,
             path_effects=[matplotlib.patheffects.Stroke(foreground="w", linewidth=2), matplotlib.patheffects.Normal()],
+            **plot_params,
         )
 
-    #for x in grid_x:
+    # for x in grid_x:
     #    plt.vlines(x, ymin, ymax)
-    #for y in grid_y:
+    # for y in grid_y:
     #    plt.hlines(y, xmin, xmax)
     # print(DH_CMAP.set_clim(-1, 0.2))
     # cbar = plt.colorbar(DH_CMAP)
-    colorbar(MB_CMAP, height=0.3, loc=(0.03, 0.65), vmax=0.2, vmin=-0.75, tick_right=True, label=DH_MWE_LABEL, rotate_ticks=False, labelpad=5)
-    #inset.yaxis.set_label_position("right")
-    #inset.set_ylabel("dHdt$^{-1}$ (" + DH_MWE_UNIT + ")", rotation=270, labelpad=14)
-    #inset.yaxis.tick_right()
+    colorbar(
+        MB_CMAP,
+        height=0.3,
+        loc=(0.03, 0.65),
+        vmax=0.2,
+        vmin=-0.75,
+        tick_right=True,
+        label=DH_MWE_LABEL,
+        rotate_ticks=False,
+        labelpad=5,
+    )
+    # inset.yaxis.set_label_position("right")
+    # inset.set_ylabel("dHdt$^{-1}$ (" + DH_MWE_UNIT + ")", rotation=270, labelpad=14)
+    # inset.yaxis.tick_right()
 
     legend_items = (
         # Add empty patch as a header
         {"Size (km²)": matplotlib.patches.Patch(facecolor="none", edgecolor="none")}  # Add an empty patch as a header
         | {
             f"{area_km2} km²": plt.scatter(0, 0, s=size_func(area_km2), c="white", edgecolor="k")
-            for area_km2 in [10, 50, 400]
+            for area_km2 in [10, 50, 200]
         }
     )
     legend_items_list = list(legend_items.items())
-    #legend_items_list.insert(-1, ("", matplotlib.patches.Patch(facecolor="none", edgecolor="none")))
+    # legend_items_list.insert(-1, ("", matplotlib.patches.Patch(facecolor="none", edgecolor="none")))
     legend_items = dict(legend_items_list)
 
     plt.ylim(61995, 302000)
@@ -1252,7 +1317,9 @@ def regional_dh(show: bool = True):
     plt.ylabel("Northing (m)")
     plt.xlabel("Easting (m)")
 
-    plt.legend(labels=legend_items.keys(), handles=legend_items.values(), borderpad=0.9, labelspacing=1.3, loc="upper right")
+    plt.legend(
+        labels=legend_items.keys(), handles=legend_items.values(), borderpad=0.9, labelspacing=1.3, loc="upper right"
+    )
     plt.tight_layout()
 
     plt.savefig("temp/figures/dh_bubbles.jpg", dpi=600)
@@ -1287,34 +1354,40 @@ def interpolation_before_and_after(show: bool = True):
         "extent": [bounds.left, bounds.right, bounds.bottom, bounds.top],
     }
 
+    points = {
+        "GA": (645800, 150500),
+        "UG": (657750, 157800),
+    }
+
     plt.figure(figsize=(8.3, 5), dpi=200)
     for i, key in enumerate(ddems, start=1):
         axis = plt.subplot(1, 2, i)
         plt.imshow(np.ma.masked_array(ddems[key], mask=np.isnan(ddems[key])), **imshow_params)
 
         lk50_outlines.plot(ax=axis, color="none", edgecolor="black", lw=0.7)
-        
 
+        for label, xy_coord in points.items():
+            plt.annotate(label, xy_coord, ha="center", va="center", fontsize=8, path_effects=[matplotlib.patheffects.Stroke(foreground="k", linewidth=2), matplotlib.patheffects.Normal()], color="white")
+
+        plt.xlim(bounds.left, bounds.right)
+        plt.ylim(bounds.bottom, bounds.top)
         yticks = plt.gca().get_yticks()[[2, -2]]
-        plt.yticks(yticks, (yticks + 1e6).astype(int) if i == 1 else [""] * len(yticks), rotation=270, va="center")
+        plt.yticks(yticks, (yticks + 1e6).astype(int) if i == 1 else [""] * len(yticks), rotation=90, va="center")
         xticks = plt.gca().get_xticks()[[2, -3]]
         plt.xticks(xticks, (xticks + 2e6).astype(int) if i == 1 else [""] * len(xticks))
 
         plt.text(0.03, 0.98, "A)" if i == 1 else "B)", ha="left", va="top", transform=plt.gca().transAxes, fontsize=12)
         if i == 1:
-            inset = colorbar(label=DH_MWE_LABEL, tick_right=True, loc=(0.02, 0.7), vmax=1, rotate_ticks=False, labelpad=5)
+            inset = colorbar(label=DH_LABEL, tick_right=True, loc=(0.02, 0.7), vmax=1, rotate_ticks=False, labelpad=5)
             inset.set_yticks([-4, -1, 0, 1])
             inset.set_yticklabels(["$<-4$", "-1", "0", ">1"])
             plt.ylabel("Northing (m)")
             plt.xlabel("Easting (m)")
 
-        plt.xlim(bounds.left, bounds.right)
-        plt.ylim(bounds.bottom ,bounds.top)
-
     plt.tight_layout()
 
     plt.subplots_adjust(top=0.99, bottom=0.09, left=0.095, right=0.982, hspace=0.2, wspace=0.0)
-    plt.savefig("temp/figures/interpolation_before_and_after.jpg", dpi=900)
+    plt.savefig("temp/figures/interpolation_before_and_after.jpg", dpi=600)
 
     if show:
         plt.show()
@@ -1339,9 +1412,9 @@ def mb_correlations(show: bool = True):
     glacier_wise_dh = glacier_wise_dh.merge(sgi_2016["debris_frac"], left_on="sgi_2016", right_index=True)
 
     glacier_wise_dh = glacier_wise_dh.select_dtypes(np.number)
-    #glacier_wise_dh = glacier_wise_dh[
+    # glacier_wise_dh = glacier_wise_dh[
     #    glacier_wise_dh["dh_m_we"].abs() < (xdem.spatialstats.nmad(glacier_wise_dh["dh_m_we"]) * 3)
-    #]
+    # ]
 
     glacier_wise_dh["area_log10"] = np.log10(glacier_wise_dh["start_area"] / 1e6)
     glacier_wise_dh["debris_log10"] = np.log10(glacier_wise_dh["debris_frac"] + 1e-4)
@@ -1361,7 +1434,7 @@ def mb_correlations(show: bool = True):
 
     plt.figure(figsize=(8.3, 5))
 
-    #nmad = xdem.spatialstats.nmad(glacier_wise_dh["dh_m_we"])
+    # nmad = xdem.spatialstats.nmad(glacier_wise_dh["dh_m_we"])
     percentile = 99
     lower = np.nanpercentile(weighted["dh_m_we"], (100 - percentile) / 2)
     upper = np.nanpercentile(weighted["dh_m_we"], percentile + (100 - percentile) / 2)
@@ -1372,7 +1445,10 @@ def mb_correlations(show: bool = True):
     ):
         plt.subplot(2, 2, i)
 
-        filtered = weighted.iloc[(weighted[col].values > np.nanpercentile(weighted[col].values, 2.5)) & (weighted[col].values <= np.nanpercentile(weighted[col].values, 97.5))]
+        filtered = weighted.iloc[
+            (weighted[col].values > np.nanpercentile(weighted[col].values, 2.5))
+            & (weighted[col].values <= np.nanpercentile(weighted[col].values, 97.5))
+        ]
 
         bins = np.percentile(filtered[col].values, np.linspace(0, 100, 10))
         bins[-1] += 1e-3  # Make sure the last bin includes the maximum largest numbers
@@ -1410,9 +1486,9 @@ def mb_correlations(show: bool = True):
             xticks_log = np.arange(min_log, max_log + 1)
             minor_xticks = np.log10(np.ravel([[a * 10 ** b for a in np.arange(1, 11)] for b in xticks_log]))
 
-            plt.xticks(xticks_log, [int(a) if int(a) == a else a for a in  10** xticks_log])
+            plt.xticks(xticks_log, [int(a) if int(a) == a else a for a in 10 ** xticks_log])
             plt.gca().set_xticks(minor_xticks, minor=True)
-            plt.gca().tick_params(axis='x', which='minor', **(dict(top=True) if i <= 2 else dict(bottom=True)))
+            plt.gca().tick_params(axis="x", which="minor", **(dict(top=True) if i <= 2 else dict(bottom=True)))
         elif col == "easting":
             xticks = np.round(np.linspace(bins[0], bins[-1], 3), -5)
             plt.xticks(xticks, labels=(xticks + 2e6).astype(int))
@@ -1432,24 +1508,42 @@ def mb_correlations(show: bool = True):
         plt.yticks(yticks, labels=([""] * yticks.size if i % 2 == 0 else None))
         if i % 2 == 0:
             yticks = plt.gca().get_yticks()
-        #else:
+        # else:
         #    plt.ylabel(r"dHdt$^{-1}$ " + DH_MWE_UNIT)
-        
 
         mask = (filtered["dh_m_we"] > lower) & (filtered["dh_m_we"] <= upper)
         corr = np.corrcoef(filtered.loc[mask, col], filtered.loc[mask, "dh_m_we"])[0, 1]
-        #corr = np.corrcoef(midpoints, medians)[0, 1]
-        plt.text(0.98, 0.98, f"r={corr:.2f}".replace("-", "–"), ha="right", va="top", transform=plt.gca().transAxes,bbox= dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8))
-        plt.text(0.01, 0.98, "ABCD"[i - 1] + ")", fontsize=12, ha="left", va="top", transform=plt.gca().transAxes,bbox= dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8))
+        # corr = np.corrcoef(midpoints, medians)[0, 1]
+        plt.text(
+            0.98,
+            0.98,
+            f"r={corr:.2f}".replace("-", "–"),
+            ha="right",
+            va="top",
+            transform=plt.gca().transAxes,
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8),
+        )
+        plt.text(
+            0.01,
+            0.98,
+            "ABCD"[i - 1] + ")",
+            fontsize=12,
+            ha="left",
+            va="top",
+            transform=plt.gca().transAxes,
+            bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=0.8),
+        )
         plt.xlim(bins[0] - abs(bins[0]) * 0.05, bins[-1] * 1.05)
         plt.ylim(ylim)
         plt.grid(zorder=0)
 
         if i == 2:
-            inset = colorbar(MB_CMAP, vmin=ylim[0], vmax=ylim[1], loc=(1.01, 0.1), tick_right=True, height=0.7, width=0.08)
+            inset = colorbar(
+                MB_CMAP, vmin=ylim[0], vmax=ylim[1], loc=(1.01, 0.1), tick_right=True, height=0.7, width=0.08
+            )
             inset.set_ylabel(DH_MWE_LABEL, labelpad=8, fontsize=10)
 
-    plt.text(0, 0.5, r"dHdt$^{-1}$ " + DH_MWE_UNIT, ha="left", va="center", rotation=90, transform=plt.gcf().transFigure)
+    plt.text(0, 0.5, DH_MWE_LABEL, ha="left", va="center", rotation=90, transform=plt.gcf().transFigure)
 
     plt.subplots_adjust(left=0.083, bottom=0.092, right=0.905, top=0.886, wspace=0.013, hspace=0.015)
     plt.savefig("temp/figures/mb_correlations.jpg", dpi=600)
@@ -1506,7 +1600,7 @@ def render_all_figures():
             regional_dh,
             interpolation_before_and_after,
             west_east_transect,
-            mb_correlations
+            mb_correlations,
         ],
         desc="Rendering figures",
     ):
