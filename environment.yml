@@ -19,6 +19,7 @@ dependencies:
         - scikit-image
         - cartopy
         - requests
+        - graphviz
         # xdem should be installed, but is currently installed from source instead.
           #- xdem
         - pip:

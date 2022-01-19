@@ -299,14 +299,24 @@ def match_sgi_ids():
 
     # matthias_dh["geodetic_dh"] = glacier_wise_dh.loc[matthias_dh.index, "dh_m_we"].values * (STANDARD_END_YEAR - STANDARD_START_YEAR)
 
-    import matplotlib.pyplot as plt
+    #import matplotlib.pyplot as plt
+
+    #print(matthias_dh.corr())
+    #matthias_dh["diff_dh"] = matthias_dh["geodetic_dh"] - matthias_dh["glaciological_dh"]
+    #print(abs(matthias_dh["diff_dh"].median()) / matthias_dh[["geodetic_dh", "glaciological_dh"]].abs().mean().mean())
+
+    return matthias_dh
 
     for i, col in enumerate(["dh", "dm"]):
         plt.subplot(1,2, i + 1)
         sign = -1 if col == "dm" else 1
         plt.errorbar(matthias_dh[f"geodetic_{col}"] * sign, matthias_dh[f"glaciological_{col}"] * sign, xerr=matthias_dh[f"geodetic_{col}_err"] * 2, marker="s", lw=0, elinewidth=2, ecolor="black")
+    
+        coeffs = np.polyfit(matthias_dh[f"geodetic_{col}"], matthias_dh[f"glaciological_{col}"], deg=1, w=matthias_dh[f"geodetic_{col}_err"])
         minval = matthias_dh[[f"geodetic_{col}", f"glaciological_{col}"]].min().min()
+
         plt.plot([minval * sign, 0], [minval * sign, 0])
+        plt.plot(xs * sign, np.poly1d(coeffs)(xs) * sign)
         plt.title(f"{STANDARD_START_YEAR}$-${STANDARD_END_YEAR}")
 
         if col == "dm m":

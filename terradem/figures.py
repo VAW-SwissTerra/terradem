@@ -24,6 +24,7 @@ import sklearn
 import sklearn.pipeline
 from tqdm import tqdm
 
+import graphviz
 import terradem.climate
 import terradem.error
 import terradem.files
@@ -61,13 +62,21 @@ MB_CMAP = matplotlib.cm.ScalarMappable(
 DH_UNIT = "m a⁻¹"
 DH_LABEL = "dH dt⁻¹ (m a⁻¹)"
 DH_MWE_UNIT = "m w.e. a⁻¹"
-DH_MWE_LABEL = r"B (m w.e. a$^{-1}$)"
+DH_MWE_LABEL = r"Ḃ (m w.e. a$^{-1}$)"
 
 
 IMAGE_EXAMPLE_BOUNDS = rio.coords.BoundingBox(left=6.70e5, bottom=1.567e5 - 500, right=6.76e5, top=1.68e5 - 500)
 INTERPOLATION_BEFORE_AFTER_BOUNDS = rio.coords.BoundingBox(632760, 132950, 665800, 174560)
 LK50_EXAMPLE_BOUNDS = rio.coords.BoundingBox(left=628150, right=633160, bottom=100800, top=105000)
 OUTLINE_ERROR_BOUNDS = rio.coords.BoundingBox(left=659300, right=661000, bottom=160200, top=162000)
+
+FLOWCHART_STYLES = {
+    "external_input": dict(fillcolor="skyblue", shape="box3d", style="filled", fontcolor="black"),
+    "internal_input": dict(fillcolor="plum", style="filled", fontcolor="black"),
+    "intermediate_file": dict(fillcolor="lightgray", style="filled", fontcolor="black"),
+    "process": dict(fillcolor="lightgreen", shape="tripleoctagon", style="filled", fontcolor="black"),
+    "output": dict(fillcolor="lightpink", style="filled", shape="rectangle", fontcolor="black"),
+}
 
 
 def colorbar(
@@ -423,7 +432,9 @@ def plot_base_dem_slope(axis: plt.Axes | None = None):
     )
 
 
-def plot_lk50_glaciers(axis: plt.Axes | None = None, lk50_outlines: gpd.GeoDataFrame | None = None, **plot_params) -> None:
+def plot_lk50_glaciers(
+    axis: plt.Axes | None = None, lk50_outlines: gpd.GeoDataFrame | None = None, **plot_params
+) -> None:
     axis = axis or plt.gca()
     lk50_outlines = (
         lk50_outlines if lk50_outlines is not None else gpd.read_file(terradem.files.INPUT_FILE_PATHS["lk50_outlines"])
@@ -516,9 +527,9 @@ def overview(show: bool = True):
 
     for name, box_bounds in {
         "2": IMAGE_EXAMPLE_BOUNDS,
-        "5": INTERPOLATION_BEFORE_AFTER_BOUNDS,
-        "4A": LK50_EXAMPLE_BOUNDS,
-        "4B": OUTLINE_ERROR_BOUNDS,
+        "6": INTERPOLATION_BEFORE_AFTER_BOUNDS,
+        "5A": LK50_EXAMPLE_BOUNDS,
+        "5B": OUTLINE_ERROR_BOUNDS,
     }.items():
         plt.plot(
             *shapely.geometry.box(*box_bounds).exterior.xy,
@@ -574,11 +585,13 @@ def overview(show: bool = True):
         handles.append(plt.scatter(0, 0, s=20, color=image_year_cmap.to_rgba(i), label=f"{bins[i - 1] + 1}–{bins[i]}"))
     legend0 = plt.legend(handles=handles, loc="lower right", title="Photograph years")
 
-    plt.legend(handles=[
-        weather_station_handle,
-        matplotlib.patches.Patch(facecolor=glacier_color, edgecolor="none", label="Glaciers ~1931")
+    plt.legend(
+        handles=[
+            weather_station_handle,
+            matplotlib.patches.Patch(facecolor=glacier_color, edgecolor="none", label="Glaciers ~1931"),
         ],
-        loc="lower left")
+        loc="lower left",
+    )
     plt.gca().add_artist(legend0)
 
     xlim = (1900, 2021)
@@ -782,7 +795,6 @@ def error_ensemble(show: bool = True):
                         ms=3,
                         color="k",
                         label="Empiric",
-
                     )[2]
                     # Plot the model line
                     plt.plot(
@@ -814,7 +826,7 @@ def error_ensemble(show: bool = True):
                         va="top",
                     )
 
-                #if k == 2 and j == 0:
+                # if k == 2 and j == 0:
                 #    plt.gca().yaxis.tick_right()
 
                 if i == 1:
@@ -1167,6 +1179,50 @@ def west_east_transect(show: bool = True):
     # plt.xticks(xticks, [""] * len(xticks))
     plt.xticks([])
     plt.ylabel("Elevation (m a.s.l.)")
+
+    sgi_regions = gpd.read_file("ch_bnd/sgi_regions/SGI_Regions.shp").dissolve(by="river_leve")
+    sgi_regions = sgi_regions[sgi_regions.index.isin(subregion_names)]
+    outline = gpd.read_file("ch_bnd/ch.shp")
+    map_inset: plt.Axes = plt.gca().inset_axes([0.6, 0.75, 0.25, 0.25])
+    map_inset.set_xticks([])
+    map_inset.set_yticks([])
+    sgi_regions.plot(categorical=True, ax=map_inset, categories=sgi_regions.index, cmap="Accent")
+    outline.plot(edgecolor="black", facecolor="none", ax=map_inset)
+
+    for letter, row in sgi_regions.iterrows():
+        map_inset.annotate(
+            subregion_names[letter],
+            row.geometry.centroid.coords[0],
+            ha="center",
+            va="center",
+            fontsize=8,
+            path_effects=[matplotlib.patheffects.Stroke(foreground="w", linewidth=2), matplotlib.patheffects.Normal()],
+        )
+
+    map_inset.set_xlim(sgi_regions.total_bounds[[0, 2]])
+    map_inset.set_ylim(sgi_regions.total_bounds[[1, 3]])
+    map_inset.text(
+        0.02,
+        0.98,
+        "B)",
+        ha="left",
+        va="top",
+        transform=map_inset.transAxes,
+        fontsize=12,
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
+    )
+
+    plt.text(
+        0.01,
+        0.98,
+        "A)",
+        ha="left",
+        va="top",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
+    )
+
     plt.subplots_adjust(left=0.08, bottom=0.04, right=0.914, top=0.963)
 
     plt.savefig("temp/figures/west_east_transect.jpg", dpi=600)
@@ -1216,8 +1272,11 @@ def regional_dh(show: bool = True):
     grouped[["grid_north", "grid_east"]] = data.groupby(group_column).first()[["grid_north", "grid_east"]]
     # grouped["area_km2"] = grouped["start_area"] * grouped["count"] * 1e-6
 
+    grouped["glacier_count"] = data.groupby("i").count().iloc[:, 0]
+
     grouped.sort_values("easting", inplace=True)
 
+    #print(grouped.loc[grouped["glacier_count"] > 5, "dh_m_we"].describe())
     # grouped = grouped[grouped["dh_m_we"] > -2]
 
     # grouped["size"] = np.clip(grouped["dh_m_we"] * -60 + 1, 0, 200)
@@ -1367,7 +1426,18 @@ def interpolation_before_and_after(show: bool = True):
         lk50_outlines.plot(ax=axis, color="none", edgecolor="black", lw=0.7)
 
         for label, xy_coord in points.items():
-            plt.annotate(label, xy_coord, ha="center", va="center", fontsize=8, path_effects=[matplotlib.patheffects.Stroke(foreground="k", linewidth=2), matplotlib.patheffects.Normal()], color="white")
+            plt.annotate(
+                label,
+                xy_coord,
+                ha="center",
+                va="center",
+                fontsize=8,
+                path_effects=[
+                    matplotlib.patheffects.Stroke(foreground="k", linewidth=2),
+                    matplotlib.patheffects.Normal(),
+                ],
+                color="white",
+            )
 
         plt.xlim(bounds.left, bounds.right)
         plt.ylim(bounds.bottom, bounds.top)
@@ -1590,6 +1660,288 @@ def downsample_nans(array: np.ndarray, downsample: int = 5):
     return new_array.reshape(new_array_shape)
 
 
+def summary_flowchart():
+    dot = graphviz.Digraph(engine="dot")
+    dot.attr(size="8.3,5.9", ratio="compress", rankdir="TB", nodesep="0.02", ranksep="0.04", clusterrank="local")
+    # dot.attr(ration="fill")
+    # dot.attr(label="* = Not yet implemented/finished")
+
+    with dot.subgraph(name="cluster_preprocessing") as cluster:
+        cluster.attr(color="black", label="Data preparation")
+        cluster.node("input-lk50", "LK50 map series", **FLOWCHART_STYLES["external_input"])
+        cluster.node(
+            "input-freudinger", "Freudinger et al., (2018)\nsnow+ice outlines", **FLOWCHART_STYLES["external_input"]
+        )
+        cluster.node("input-lakes", "SwissTLM lakes+dams", **FLOWCHART_STYLES["external_input"])
+        cluster.node("process-fiducial_detection", "Fiducial detection", **FLOWCHART_STYLES["process"])
+        cluster.node("interm-fiducials", "Internal coordinate\nsystems", **FLOWCHART_STYLES["intermediate_file"])
+        cluster.node("process-position_biascorr", "Coordinate bias\ncorrection", **FLOWCHART_STYLES["process"])
+
+        cluster.node(
+            "interm-bias_corr_positions", "Bias-corrected\nposition data", **FLOWCHART_STYLES["intermediate_file"]
+        )
+        cluster.node("process-digitization", "Glacier digitization", **FLOWCHART_STYLES["process"])
+        cluster.node("output-glacier_outlines", "LK50\nglacier outlines", **FLOWCHART_STYLES["output"])
+        cluster.node("interm-stable_ground", "Stable ground mask", **FLOWCHART_STYLES["intermediate_file"])
+
+    with dot.subgraph(name="cluster_dem_generation") as cluster:
+        cluster.attr(color="black", label="DEM generation and alignment")
+        cluster.node("process-photogrammetry", "Photogrammetry", **FLOWCHART_STYLES["process"])
+        cluster.node("interm-orthoimages", "Orthoimages", **FLOWCHART_STYLES["intermediate_file"])
+        cluster.node("interm-dems_non_coreg", "DEMs", **FLOWCHART_STYLES["intermediate_file"])
+        cluster.node("process-icp_coregistration", "ICP coregistration", **FLOWCHART_STYLES["process"])
+        cluster.node("interm-dems_coreg", "Coregistered DEMs", **FLOWCHART_STYLES["intermediate_file"])
+        cluster.node("output-orthoimages_coreg", "Coregistered\northoimages", **FLOWCHART_STYLES["output"])
+        cluster.node("process-dem_subtraction", "DEM subtraction", **FLOWCHART_STYLES["process"])
+
+    with dot.subgraph(name="cluster_post_processing") as cluster:
+        cluster.attr(color="black", label="Post-processing and mass balance")
+
+        cluster.node("interm-dh_maps", "dH maps", **FLOWCHART_STYLES["intermediate_file"])
+        cluster.node("process-temporal_correction", "Temporal spread\ncorrection", **FLOWCHART_STYLES["process"])
+        cluster.node("interm-dh_map_mosaic", "1931–2016\ndH dt⁻¹ mosaic", **FLOWCHART_STYLES["intermediate_file"])
+        cluster.node("process-interpolation", "Hypsometric interpolation", **FLOWCHART_STYLES["process"])
+        cluster.node("output-dh_mosaic", "Interpolated 1931–2016\ndH dt⁻¹ mosaic", **FLOWCHART_STYLES["output"])
+        cluster.node("input-massbalance", "Mass balance data", **FLOWCHART_STYLES["external_input"])
+
+    with dot.subgraph(name="cluster_legend") as cluster:
+        cluster.attr(color="black", label="Legend", penwidth="2")
+        cluster.node("process", "Process", **FLOWCHART_STYLES["process"])
+        cluster.node("input", "External input", **FLOWCHART_STYLES["external_input"])
+        cluster.node("interm", "Intermediate\nresult", **FLOWCHART_STYLES["intermediate_file"])
+        cluster.node("output", "Output", **FLOWCHART_STYLES["output"])
+
+    dot.edge("process-interpolation", "output", color="none")
+    dot.edge("process-dem_subtraction", "output", color="none")
+    dot.edge("output", "interm", color="none")
+    dot.edge("input", "process", color="none")
+
+    dot.node("input-photographs", "terrA images", **FLOWCHART_STYLES["external_input"])
+    dot.node("input-image_metadata", "Image metadata\n(date + position)", **FLOWCHART_STYLES["external_input"])
+    dot.node("input-base_dem", "Modern DEM (swissAlti3D)", **FLOWCHART_STYLES["external_input"])
+
+    dot.edge("input-lakes", "interm-stable_ground")
+    dot.edge("input-freudinger", "interm-stable_ground")
+    dot.edge("input-lk50", "process-digitization")
+    dot.edge("process-digitization", "output-glacier_outlines")
+
+    dot.edge("input-image_metadata", "process-position_biascorr")
+    dot.edge("input-base_dem", "process-position_biascorr")
+    dot.edge("interm-stable_ground", "process-position_biascorr")
+    dot.edge("process-position_biascorr", "interm-bias_corr_positions")
+    dot.edge("interm-bias_corr_positions", "process-photogrammetry")
+    dot.edge("input-photographs", "process-fiducial_detection")
+    dot.edge("process-fiducial_detection", "interm-fiducials")
+    dot.edge("interm-fiducials", "process-photogrammetry")
+    dot.edge("input-photographs", "process-photogrammetry")
+    dot.edge("process-photogrammetry", "interm-dems_non_coreg")
+    dot.edge("process-photogrammetry", "interm-orthoimages")
+    dot.edge("interm-dems_non_coreg", "process-icp_coregistration")
+    dot.edge("interm-orthoimages", "process-icp_coregistration")
+    dot.edge("process-icp_coregistration", "interm-dems_coreg")
+    dot.edge("process-icp_coregistration", "output-orthoimages_coreg")
+    dot.edge("interm-stable_ground", "process-icp_coregistration")
+    dot.edge("input-base_dem", "process-icp_coregistration")
+    dot.edge("input-base_dem", "process-dem_subtraction")
+    dot.edge("interm-dems_coreg", "process-dem_subtraction")
+    dot.edge("process-dem_subtraction", "interm-dh_maps")
+    dot.edge("interm-dh_maps", "process-temporal_correction")
+    dot.edge("output-glacier_outlines", "process-temporal_correction")
+    dot.edge("input-massbalance", "process-temporal_correction")
+    dot.edge("input-image_metadata", "process-temporal_correction")
+    dot.edge("process-temporal_correction", "interm-dh_map_mosaic", label="+ mosaicing")
+    dot.edge("interm-dh_map_mosaic", "process-interpolation")
+    dot.edge("input-base_dem", "process-interpolation")
+    dot.edge("process-interpolation", "output-dh_mosaic")
+
+    # dot = dot.unflatten(stagger=0)
+
+    dot.render("temp/figures/summary_flowchart")
+
+
+def aletsch_map_vs_digital(show: bool = True):
+
+    map_ds = rio.open("ch_bnd/aletsch_1927_dem_50m.tif")
+    ddem_ds = rio.open(terradem.files.TEMP_FILES["ddem_coreg_tcorr_national-interp-extrap"])
+    base_dem_ds = rio.open(terradem.files.INPUT_FILE_PATHS["base_dem"])
+
+    end_year = 2016
+    start_year = 1927
+    year_range = end_year - start_year
+
+    # For some strange reason, the bottom and top coordinates of the bounds are wrong!
+    if map_ds.bounds.bottom > map_ds.bounds.top:
+        correct_bounds = rio.coords.BoundingBox(
+            map_ds.bounds.left, bottom=map_ds.bounds.top, right=map_ds.bounds.right, top=map_ds.bounds.bottom
+        )
+    else:
+        correct_bounds = map_ds.bounds
+
+    window = rio.windows.from_bounds(*correct_bounds, transform=ddem_ds.transform)
+    ddem_digital = ddem_ds.read(1, window=window, masked=True).filled(np.nan)
+
+    map_dem = np.empty_like(ddem_digital)
+    rio.warp.reproject(
+        map_ds.read(1, masked=True),
+        src_crs=map_ds.crs,
+        dst_crs=map_ds.crs,
+        src_transform=map_ds.transform,
+        dst_resolution=5,
+        resampling=rio.warp.Resampling.cubic,
+        dst_transform=rio.transform.from_origin(correct_bounds.left, correct_bounds.top, 5.0, 5.0),
+        destination=map_dem,
+    )
+    map_dem = np.where(map_dem > 0, map_dem, np.nan).squeeze()
+
+    abs_dh_normalizer = matplotlib.colors.Normalize(vmin=-DH_VLIM * year_range, vmax=DH_VLIM * year_range, clip=True)
+    abs_dh_cmap = matplotlib.cm.ScalarMappable(
+        norm=abs_dh_normalizer,
+        cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
+            "abs_dh", [(abs_dh_normalizer(a * year_range), b) for a, b in DH_COLORS]
+        ),
+    )
+    ddem_digital = np.where(np.isfinite(map_dem), ddem_digital * (end_year - start_year), np.nan)
+    ddem_map = base_dem_ds.read(1, window=window) - map_dem
+
+    ddem_diff = ddem_digital - ddem_map
+    ddem_diff[(np.abs(ddem_diff) - abs(np.nanmedian(ddem_diff))) > (5 * xdem.spatialstats.nmad(ddem_diff))] = np.nan
+
+    matthias_vs_study = terradem.massbalance.match_sgi_ids()
+
+    #elevation_bins = np.linspace(np.nanmin(map_dem), np.nanmax(map_dem) + 1e-5, 15)
+    elevation_bins = np.nanpercentile(map_dem, np.linspace(0, 100, 10))
+    elevation_bins[-1] += 0.005
+    indices = np.digitize(map_dem, elevation_bins)
+    bin_values = [ddem_diff[(indices == i) & np.isfinite(ddem_diff)] for i in np.unique(indices) if i != elevation_bins.size]
+
+
+    plt.figure(figsize=(8.3, 5))
+    grid = (2, 14)
+    plt.subplot2grid(grid, (0, 0), rowspan=2, colspan=6)
+    plt.plot([-3, 3], [-3, 3], color="black", linestyle="--")
+    plt.errorbar(
+        matthias_vs_study["geodetic_dh"],
+        matthias_vs_study[f"glaciological_dh"],
+        xerr=matthias_vs_study[f"geodetic_dh_err"] * 2,
+        yerr=0.2,
+        marker="s",
+        markeredgecolor="black",
+        lw=0,
+        elinewidth=2,
+        ecolor="#00000060",
+    )
+    ticks = [-1.5, -1.0, -0.5, 0]
+    plt.xticks(ticks)
+    plt.yticks(ticks)
+    plt.xlim(-1.53, 0.2)
+    plt.ylim(-1.53, 0.2)
+    plt.xlabel(f"This study: B ({DH_MWE_UNIT})")
+    plt.ylabel(f"Huss et al., (2010a,b): B ({DH_MWE_UNIT})")
+    plt.text(
+        0.008,
+        0.99,
+        "A)",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        ha="left",
+        va="top",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.2),
+    )
+    # plt.subplot(2, 2, 1)
+    plt.subplot2grid(grid, (0, grid[1] - 7), colspan=2)
+    plt.imshow(ddem_map, cmap=abs_dh_cmap.get_cmap(), norm=abs_dh_normalizer)
+    plt.xticks([])
+    plt.yticks([])
+    plt.text(
+        0.02,
+        0.98,
+        "B)",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        ha="left",
+        va="top",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
+    )
+    # plt.subplot(2, 2, 2)
+    plt.subplot2grid(grid, (0, grid[1] - 5), colspan=2)
+    plt.imshow(ddem_digital, cmap=abs_dh_cmap.get_cmap(), norm=abs_dh_normalizer)
+    plt.xticks([])
+    plt.yticks([])
+    plt.text(
+        0.02,
+        0.98,
+        "C)",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        ha="left",
+        va="top",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
+    )
+    # plt.subplot(2, 2, 3)
+    plt.subplot2grid(grid, (0, grid[1] - 3), colspan=2)
+    plt.imshow(ddem_diff, cmap=abs_dh_cmap.get_cmap(), norm=abs_dh_normalizer)# cmap="coolwarm_r", vmin=-75, vmax=75)
+    plt.xticks([])
+    plt.yticks([])
+    cbar_axis = colorbar(abs_dh_cmap, loc=(1.1, 0.3), tick_right=True, label="dH (m)", height=0.7, width=0.2, vmin=-300, vmax=50, labelpad=8)
+    cbar_axis.set_yticks([-300, -100, 50])
+    plt.text(
+        0.025,
+        0.98,
+        "D)",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        ha="left",
+        va="top",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
+    )
+    plt.subplot2grid(grid, (1, grid[1] - 7), colspan=6)
+
+    # plt.subplot(2, 2, 4)
+    boxplot = plt.boxplot(
+        x=bin_values,
+        positions=elevation_bins[:-1] + np.diff(elevation_bins) / 2,
+        widths=np.diff(elevation_bins),
+        showfliers=False,
+        manage_ticks=False,
+        patch_artist=True,
+        boxprops=dict(
+            facecolor="gray",
+        ),
+        medianprops=dict(
+            color="black",
+            linestyle=":",
+        ),
+        zorder=1,
+    )
+    medians = np.array([np.median(vals) for vals in bin_values])
+    for j, box in enumerate(boxplot["boxes"]):
+        plt.setp(box, facecolor=abs_dh_cmap.to_rgba(medians[j]))
+    xlim = plt.gca().get_xlim()
+    plt.gca().yaxis.tick_right()
+    plt.gca().yaxis.set_label_position("right")
+    plt.ylabel("1927 DEM difference (m)")
+    plt.xlabel("Elevation (m a.s.l.)")
+    plt.yticks([-100, -50, 0, 50])
+
+    plt.hlines(0, *xlim, zorder=0, color="black", linestyle="--")
+    plt.xlim(xlim)
+    plt.text(
+        0.02,
+        0.98,
+        "E)",
+        transform=plt.gca().transAxes,
+        fontsize=12,
+        ha="left",
+        va="top",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
+    )
+
+    plt.subplots_adjust(left=0.087, bottom=0.089,right=0.97,top=0.984, hspace=0, wspace=0)
+    plt.savefig("temp/figures/aletsch_map_vs_digital.jpg", dpi=600)
+    if show:
+        plt.show()
+
+
 def render_all_figures():
     for func in tqdm(
         [
@@ -1601,6 +1953,7 @@ def render_all_figures():
             interpolation_before_and_after,
             west_east_transect,
             mb_correlations,
+            aletsch_map_vs_digital
         ],
         desc="Rendering figures",
     ):
