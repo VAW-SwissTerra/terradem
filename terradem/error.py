@@ -565,6 +565,8 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
     ortho_digitized = ortho_digitized[ortho_digitized["sgi-id"].isin(lk50["SGI"])]
     lk50 = lk50[lk50["SGI"].isin(ortho_digitized["sgi-id"])]
 
+    cropped_lines = gpd.GeoDataFrame(crs=lk50.crs, columns=["ortho_longer", "geometry"])
+
     # Initialize the output residuals list, aka the length difference for each line.
     residuals: list[float] = []
     j = 0
@@ -631,6 +633,10 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
             ortho_line_diff = ortho_line.difference(lk50_line.buffer(1))
             lk50_line_diff = lk50_line.difference(ortho_line.buffer(1))
 
+            if ortho_line_diff.length > 0:
+                cropped_lines.loc[cropped_lines.shape[0], ["ortho_longer", "geometry"]] = True, ortho_line_diff
+            elif lk50_line_diff.length > 0:
+                cropped_lines.loc[cropped_lines.shape[0], ["ortho_longer", "geometry"]] = False, lk50_line_diff
 
             if plot is not None and plot == j:
                 plt.plot(*ortho_line_diff.xy, color="red", linewidth=2, label="Ortho. longer" if not legend_done else None)
@@ -644,6 +650,8 @@ def glacier_outline_error(plot: int | None = None) -> list[float]:
             return
         residuals += diffs
         j += 1
+
+    cropped_lines.to_file("temp/length_difference_lines.geojson", driver="GeoJSON")
 
     # Print and plot the results.
     nmad = xdem.spatialstats.nmad(residuals)
@@ -820,10 +828,10 @@ def get_measurement_error() -> None:
 
     result = pd.DataFrame(result_list).set_index("sgi_id")
 
-    result["density_err"] = result["dh"].abs() * terradem.massbalance.ICE_DENSITY_ERROR
 
     result["dm_tons_we"] = result["dh"] * result["start_area"] * terradem.massbalance.ICE_DENSITY_CONVERSION
     result["dh_m_we"] = result["dm_tons_we"] / (result[["start_area", "end_area"]].mean(axis=1))
+    result["density_err"] = (result["dh_m_we"].abs() * terradem.massbalance.ICE_DENSITY_ERROR) / terradem.massbalance.ICE_DENSITY_CONVERSION
 
     result["dh_err"] = np.sqrt((result[["interp_err", "topo_err", "area_err", "time_err"]] ** 2).sum(axis=1))
     result["dh_err_mwe"] = np.sqrt(((result[["interp_err", "topo_err", "area_err", "time_err"]] *

@@ -706,7 +706,7 @@ def error_ensemble(show: bool = True):
                 rotate_ticks=False,
                 labelpad=5,
             )
-            inset.set_ylabel(DH_LABEL, fontsize=10)
+            inset.set_ylabel(f"Elevation change rate ({DH_UNIT})", fontsize=10)
             plt.xticks(xticks, labels=[""] * len(xticks))
             plt.yticks(yticks, labels=[""] * len(yticks))
         axis.text(
@@ -740,7 +740,7 @@ def error_ensemble(show: bool = True):
     plt.subplot2grid(grid, (0, 1 + grid[1] // 2), rowspan=grid[0] // 2, colspan=grid[0] // 2)
     plt.hist(glacier_wise_dh[list(names.keys())], bins=np.linspace(0, 0.4, 20), label=[names[col] for col in names])
     plt.ylabel("Glacier count")
-    plt.xlabel("Uncertainty in " + DH_LABEL)
+    plt.xlabel(f"Elevation change rate uncertainty ({DH_UNIT})")
     plt.yscale("log")
     plt.gca().yaxis.tick_right()
     plt.gca().yaxis.set_label_position("right")
@@ -808,7 +808,7 @@ def error_ensemble(show: bool = True):
                 plt.grid(zorder=0)
 
                 if (j == 0 and i == 0) or (j == 2 and i == 1):
-                    plt.ylabel(("Variogram of\n" + DH_LABEL) if k == 1 else "Count")
+                    plt.ylabel(("Variance of elevation\nchange rate (m² a⁻²)") if k == 1 else "Count")
                     plt.yticks(yticks)
                 else:
                     plt.yticks(yticks, [""] * len(yticks))
@@ -1202,8 +1202,8 @@ def west_east_transect(show: bool = True):
     map_inset.set_xlim(sgi_regions.total_bounds[[0, 2]])
     map_inset.set_ylim(sgi_regions.total_bounds[[1, 3]])
     map_inset.text(
-        0.02,
-        0.98,
+        0.025,
+        0.97,
         "B)",
         ha="left",
         va="top",
@@ -1448,7 +1448,7 @@ def interpolation_before_and_after(show: bool = True):
 
         plt.text(0.03, 0.98, "A)" if i == 1 else "B)", ha="left", va="top", transform=plt.gca().transAxes, fontsize=12)
         if i == 1:
-            inset = colorbar(label=DH_LABEL, tick_right=True, loc=(0.02, 0.7), vmax=1, rotate_ticks=False, labelpad=5)
+            inset = colorbar(label=f"Elevation change\nrate ({DH_UNIT})", tick_right=True, loc=(0.02, 0.7), vmax=1, rotate_ticks=False, labelpad=5)
             inset.set_yticks([-4, -1, 0, 1])
             inset.set_yticklabels(["$<-4$", "-1", "0", ">1"])
             plt.ylabel("Northing (m)")
@@ -1520,7 +1520,7 @@ def mb_correlations(show: bool = True):
             & (weighted[col].values <= np.nanpercentile(weighted[col].values, 97.5))
         ]
 
-        bins = np.percentile(filtered[col].values, np.linspace(0, 100, 10))
+        bins = np.percentile(filtered[col].values, np.linspace(0, 100, 11))
         bins[-1] += 1e-3  # Make sure the last bin includes the maximum largest numbers
         indices = np.digitize(filtered[col].values, bins=bins)
 
@@ -1809,13 +1809,13 @@ def aletsch_map_vs_digital(show: bool = True):
     matthias_vs_study = terradem.massbalance.match_sgi_ids()
 
     #elevation_bins = np.linspace(np.nanmin(map_dem), np.nanmax(map_dem) + 1e-5, 15)
-    elevation_bins = np.nanpercentile(map_dem, np.linspace(0, 100, 10))
+    elevation_bins = np.nanpercentile(map_dem, np.linspace(0, 100, 11))
     elevation_bins[-1] += 0.005
     indices = np.digitize(map_dem, elevation_bins)
     bin_values = [ddem_diff[(indices == i) & np.isfinite(ddem_diff)] for i in np.unique(indices) if i != elevation_bins.size]
 
 
-    plt.figure(figsize=(8.3, 5))
+    plt.figure(figsize=(8.3, 4))
     grid = (2, 14)
     plt.subplot2grid(grid, (0, 0), rowspan=2, colspan=6)
     plt.plot([-3, 3], [-3, 3], color="black", linestyle="--")
@@ -1835,8 +1835,8 @@ def aletsch_map_vs_digital(show: bool = True):
     plt.yticks(ticks)
     plt.xlim(-1.53, 0.2)
     plt.ylim(-1.53, 0.2)
-    plt.xlabel(f"This study: B ({DH_MWE_UNIT})")
-    plt.ylabel(f"Huss et al., (2010a,b): B ({DH_MWE_UNIT})")
+    plt.xlabel(f"This study: {DH_MWE_LABEL}")
+    plt.ylabel(f"Huss et al., (2010a,b): {DH_MWE_LABEL}")
     plt.text(
         0.008,
         0.99,
@@ -1860,7 +1860,6 @@ def aletsch_map_vs_digital(show: bool = True):
         fontsize=12,
         ha="left",
         va="top",
-        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
     )
     # plt.subplot(2, 2, 2)
     plt.subplot2grid(grid, (0, grid[1] - 5), colspan=2)
@@ -1875,14 +1874,13 @@ def aletsch_map_vs_digital(show: bool = True):
         fontsize=12,
         ha="left",
         va="top",
-        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
     )
     # plt.subplot(2, 2, 3)
     plt.subplot2grid(grid, (0, grid[1] - 3), colspan=2)
     plt.imshow(ddem_diff, cmap=abs_dh_cmap.get_cmap(), norm=abs_dh_normalizer)# cmap="coolwarm_r", vmin=-75, vmax=75)
     plt.xticks([])
     plt.yticks([])
-    cbar_axis = colorbar(abs_dh_cmap, loc=(1.1, 0.3), tick_right=True, label="dH (m)", height=0.7, width=0.2, vmin=-300, vmax=50, labelpad=8)
+    cbar_axis = colorbar(abs_dh_cmap, loc=(1.1, 0.3), tick_right=True, label="Elevation difference (m)", height=0.7, width=0.2, vmin=-300, vmax=50, labelpad=8)
     cbar_axis.set_yticks([-300, -100, 50])
     plt.text(
         0.025,
@@ -1892,7 +1890,6 @@ def aletsch_map_vs_digital(show: bool = True):
         fontsize=12,
         ha="left",
         va="top",
-        bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
     )
     plt.subplot2grid(grid, (1, grid[1] - 7), colspan=6)
 
@@ -1936,7 +1933,7 @@ def aletsch_map_vs_digital(show: bool = True):
         bbox=dict(facecolor="white", edgecolor="none", alpha=0.9, pad=1.1),
     )
 
-    plt.subplots_adjust(left=0.087, bottom=0.089,right=0.97,top=0.984, hspace=0, wspace=0)
+    plt.subplots_adjust(left=0.087, bottom=0.112,right=0.97,top=0.933, hspace=0.016, wspace=0)
     plt.savefig("temp/figures/aletsch_map_vs_digital.jpg", dpi=600)
     if show:
         plt.show()
