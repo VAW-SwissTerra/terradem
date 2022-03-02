@@ -1,4 +1,4 @@
-# terradem --- Post-processing code for the TerrA image glacier reconstruction project.
+# TerraDEM --- Post-processing code for the TerrA image glacier reconstruction project.
 
 ## Structure
 The `run.py` file shows what steps were performed in sequence to obtain the results.
